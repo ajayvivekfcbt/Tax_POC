@@ -1,0 +1,73 @@
+@model Tx9501.Models.ViewModels.ExtractSetupViewModel
+@{
+    ViewData["Title"] = "Extract Setup - Select Forms & Associations";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9562 - Extract Setup</span>
+        <span class="terminal-right">Year: @Model.TaxYear &nbsp; Seq: @Model.ExtSeq</span>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="TaxYear" />
+        <input type="hidden" asp-for="ExtSeq" />
+
+        <!-- ─── Forms ─────────────────────────────────────────────── -->
+        <div class="terminal-section">
+            <div class="terminal-label mb-1">Select Forms to Include:</div>
+            @foreach (var f in Model.FormOptions)
+            {
+                <label class="terminal-row" style="cursor:pointer;">
+                    <input type="checkbox" name="SelectedForms" value="@f"
+                           @(Model.SelectedForms.Contains(f) ? "checked" : "") />
+                    &nbsp;@f
+                </label>
+            }
+        </div>
+
+        <!-- ─── Associations ──────────────────────────────────────── -->
+        <div class="terminal-section mt-3">
+            <label class="terminal-row">
+                <input type="checkbox" id="chkAllAssoc" name="AllAssociations" value="true"
+                       @(Model.AllAssociations ? "checked" : "") />
+                &nbsp;<strong>ALL Associations</strong>
+            </label>
+            @if (Model.AssocOptions.Any())
+            {
+                <div id="assocList">
+                    @foreach (var a in Model.AssocOptions)
+                    {
+                        <label class="terminal-row">
+                            <input type="checkbox" name="SelectedAssocs" value="@a"
+                                   @(Model.SelectedAssocs.Contains(a) ? "checked" : "")
+                                   class="assn-chk" />
+                            &nbsp;@a
+                        </label>
+                    }
+                </div>
+            }
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Build IRS File</button>
+            <button type="submit" name="CancelPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    var chkAll = document.getElementById('chkAllAssoc');
+    if (chkAll) {
+        function setDisabled() {
+            document.querySelectorAll('.assn-chk').forEach(function(c) {
+                c.disabled = chkAll.checked;
+            });
+        }
+        chkAll.addEventListener('change', setDisabled);
+        setDisabled();
+    }
+</script>
+}

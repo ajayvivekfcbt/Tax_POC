@@ -1,0 +1,59 @@
+@model Tx9501.Models.ViewModels.ExtractFileViewerViewModel
+@{
+    ViewData["Title"] = "IRS Extract Viewer";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9560 - IRS Extract Viewer</span>
+        <span class="terminal-right">Year: @Model.TaxYear</span>
+    </div>
+
+    <div class="terminal-row">
+        <span class="terminal-label">Run Sequence</span>
+        <span class="terminal-value">@Model.ExtSeq</span>
+    </div>
+    <div class="terminal-row">
+        <span class="terminal-label">Run Description</span>
+        <span class="terminal-value">@(string.IsNullOrWhiteSpace(Model.RunDescription) ? "(none)" : Model.RunDescription)</span>
+    </div>
+    <div class="terminal-row">
+        <span class="terminal-label">Run Date</span>
+        <span class="terminal-value">@(string.IsNullOrWhiteSpace(Model.RunDate) ? "(none)" : Model.RunDate)</span>
+    </div>
+    <div class="terminal-row">
+        <span class="terminal-label">File Name</span>
+        <span class="terminal-value">@(string.IsNullOrWhiteSpace(Model.FileName) ? "(not generated)" : Model.FileName)</span>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+    {
+        <div class="terminal-message">@Model.ErrorMessage</div>
+    }
+    else
+    {
+        <div class="table-responsive-nowrap" style="max-height: 60vh; overflow: auto;">
+            <table class="terminal-table">
+                <thead>
+                    <tr>
+                        <th style="width: 90px;">Line</th>
+                        <th>Content</th>
+                    </tr>
+                </thead>
+                <tbody>
+                @for (var i = 0; i < Model.Lines.Count; i++)
+                {
+                    <tr>
+                        <td>@(i + 1)</td>
+                        <td style="white-space: pre;">@Model.Lines[i]</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    <div class="terminal-footer">
+        <a asp-controller="Extract" asp-action="Index" class="btn-terminal btn-exit">F12=Back</a>
+    </div>
+</div>

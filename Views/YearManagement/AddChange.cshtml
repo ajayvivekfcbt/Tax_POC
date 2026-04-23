@@ -1,0 +1,45 @@
+@model Tx9501.Models.ViewModels.TaxYearAddChangeViewModel
+@{
+    bool isAdd = !ViewContext.RouteData.Values["action"]!.ToString()!.Equals("Change", StringComparison.OrdinalIgnoreCase);
+    ViewData["Title"] = isAdd ? "Add Tax Year" : "Change Tax Year";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">@ViewData["Title"]</span>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <div class="terminal-row">
+            <label class="terminal-label">Tax Year</label>
+            @if (isAdd)
+            {
+                <input asp-for="TaxYear" class="terminal-input input-sm" maxlength="4" autofocus />
+                <span asp-validation-for="TaxYear" class="terminal-error"></span>
+            }
+            else
+            {
+                <span class="terminal-value">@Model.TaxYear</span>
+                <input type="hidden" asp-for="TaxYear" />
+            }
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Description</label>
+            @if (isAdd)
+            {
+                <input asp-for="Description" class="terminal-input" maxlength="40" autofocus />
+            }
+            else
+            {
+                <input asp-for="Description" class="terminal-input" maxlength="40" />
+            }
+            <span asp-validation-for="Description" class="terminal-error"></span>
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Confirm</button>
+            <a asp-action="Index" class="btn-terminal btn-exit">F12=Cancel</a>
+        </div>
+    </form>
+</div>

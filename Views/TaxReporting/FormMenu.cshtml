@@ -1,0 +1,156 @@
+@model FormMenuViewModel
+@{
+    ViewData["Title"] = $"Form Menu – {Model.FormName}";
+}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SF02 – Tax Reporting System Single Form Menu
+     Mirrors TX9501FM record format SF02 and the logic in tx9501cl.clp.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="terminal-panel">
+
+    <!-- ── Row 1 / Row 2 header ─────────────────────────────────────────── -->
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("MM/dd/yy")</span>
+        <span class="fw-bold fs-6">Tax Reporting System - Single Form Menu</span>
+        <span>TX9501</span>
+    </div>
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span class="text-info">
+            @Model.FormName &nbsp;-&nbsp; @Model.FormDescription
+        </span>
+        <span>SF02</span>
+    </div>
+
+    <!-- ── Row 4 – Tax Year / Status ────────────────────────────────────── -->
+    <div class="terminal-banner d-flex justify-content-between mt-2">
+        <span>
+            <span class="terminal-label">Tax Year:</span>
+            <span class="terminal-value text-warning">@Model.TaxControl.TaxYear</span>
+            &nbsp;
+            <span class="terminal-value">@Model.TaxControl.TaxDescription</span>
+        </span>
+        <span>
+            <span class="terminal-label">Status:</span>
+            <span class="terminal-value text-warning">@Model.TaxControl.TaxStatus</span>
+        </span>
+    </div>
+
+    <hr class="terminal-rule" />
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #dc3545;">
+            <strong>❌ Error:</strong> @Model.ErrorMessage
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert alert-success py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #28a745;">
+            @Model.StatusMessage
+        </div>
+    }
+
+    <!-- ── Selected Associations Info ───────────────────────────────────── -->
+    <div class="alert alert-info py-1 px-3 font-monospace small mb-2" style="background-color: #e7f3ff; border: 1px solid #b3d9ff;">
+        <span class="fw-bold">Selected Associations:</span> @Model.SelectedAssociationsDisplay
+    </div>
+
+    <!-- ── Row 6 – Column headings ──────────────────────────────────────── -->
+    <div class="row terminal-colhdr mt-1 mb-1">
+        <div class="col-1"><span class="text-info fw-bold">Opt</span></div>
+        <div class="col-11"><span class="text-info fw-bold">Description</span></div>
+    </div>
+
+    <form asp-action="FormMenu" method="post">
+        @Html.AntiForgeryToken()
+
+        <!-- ── Row 7  – Maintain ────────────────────────────────────────── -->
+        @FormRow("MAINTAIN", "opt_maintain", Model.D_Maintain)
+
+        <!-- ── Row 9  – Edit / Validate ─────────────────────────────────── -->
+        @FormRow("EDIT",     "opt_edit",     Model.D_Edit)
+
+        <!-- ── Row 11 – Print Detail ────────────────────────────────────── -->
+        @FormRow("PRTDTL",   "opt_prtdtl",  Model.D_PrtDtl)
+
+        <!-- ── Row 12 – Print Exclusion ─────────────────────────────────── -->
+        @FormRow("PRTEXC",   "opt_prtexc",  Model.D_PrtExc)
+
+        <!-- ── Row 13 – Print Errors ────────────────────────────────────── -->
+        @FormRow("PRTERR",   "opt_prterr",  Model.D_PrtErr)
+
+        <!-- ── Row 14 – Summary ─────────────────────────────────────────── -->
+        @FormRow("SUMMARY",  "opt_summary", Model.D_Summary)
+
+        <!-- ── Row 16 – Clear ───────────────────────────────────────────── -->
+        @FormRow("CLEAR",    "opt_clear",   Model.D_Clear)
+
+        <!-- ── Row 17 – Build ───────────────────────────────────────────── -->
+        @FormRow("BUILD",    "opt_build",   Model.D_Build)
+
+        @* Row 19 – Letter option (IN81): only shown for 1098 form *@
+        @if (Model.ShowLetterOption)
+        {
+            @FormRow("LETTER", "opt_letter", Model.D_Letter)
+        }
+
+        <hr class="terminal-rule" />
+
+        <!-- ── Row 24 – Function keys ────────────────────────────────────── -->
+        <div class="d-flex gap-3 mt-2">
+            <button type="submit" class="btn btn-success btn-sm font-monospace"
+                    onclick="return validateAction();">
+                Enter
+            </button>
+            <!-- F12 = Cancel → back to Main Menu -->
+            <button type="submit" name="backToMain" value="1"
+                    class="btn btn-outline-warning btn-sm font-monospace">
+                F12 = Cancel
+            </button>
+            <!-- F3 = Exit → clears session -->
+            <button type="submit"
+                    formaction="@Url.Action("Exit", "TaxReporting")"
+                    formmethod="post"
+                    class="btn btn-outline-secondary btn-sm font-monospace">
+                F3 = Exit
+            </button>
+        </div>
+    </form>
+</div>
+
+@* Helper – renders one option row (radio + label), matching IBM i input-capable fields *@
+@functions {
+    Microsoft.AspNetCore.Html.IHtmlContent FormRow(string actionValue, string radioId, string description)
+    {
+        return new Microsoft.AspNetCore.Html.HtmlString($@"
+        <div class=""terminal-row row align-items-center py-0"">
+            <div class=""col-1"">
+                <input type=""radio""
+                       class=""form-check-input terminal-opt-radio""
+                       name=""action""
+                       value=""{actionValue}""
+                       id=""{radioId}"" />
+            </div>
+            <div class=""col-11 font-monospace"">
+                <label for=""{radioId}"" class=""mb-0 w-100"" style=""cursor:pointer;"">
+                    {description}
+                </label>
+            </div>
+        </div>");
+    }
+}
+
+@section Scripts {
+<script>
+function validateAction() {
+    const selected = document.querySelector('input[name="action"]:checked');
+    if (!selected) {
+        alert('Please select an option.');
+        return false;
+    }
+    return true;
+}
+</script>
+}

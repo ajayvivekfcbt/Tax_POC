@@ -1,0 +1,77 @@
+@model Tx9501.Models.ViewModels.PagedTaxDetailListViewModel
+@{
+    ViewData["Title"] = "Error Records";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">@Model.ScreenTitle</span>
+        <span class="terminal-right">@Model.TaxYear &nbsp; @Model.FormName &nbsp; @Model.Assoc</span>
+    </div>
+
+    @if (!Model.Rows.Any())
+    {
+        <div class="terminal-message">No error records found.</div>
+    }
+    else
+    {
+        <div class="terminal-banner d-flex justify-content-between mt-2">
+            <span>Showing @Model.FirstRowNumber-@Model.LastRowNumber of @Model.TotalCount</span>
+            <span>Page @Model.PageNumber of @Model.TotalPages</span>
+        </div>
+
+        <div class="table-responsive-nowrap">
+        <table class="terminal-table">
+            <thead>
+                <tr>
+                    <th>Member</th>
+                    <th>Sub</th>
+                    <th>Name</th>
+                    <th>SSN/EIN</th>
+                    <th class="text-end">Int Paid</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var rec in Model.Rows)
+                {
+                    <tr>
+                        <td>
+                            <a asp-action="Record"
+                               asp-route-asa="@rec.Asa"
+                               asp-route-mbrNo="@rec.MbrNo.ToString("0")"
+                               asp-route-mbrSub="@rec.MbrSub"
+                               asp-route-mode="CHANGE">@rec.MbrNo.ToString("0")</a>
+                        </td>
+                        <td>@rec.MbrSub</td>
+                        <td>@rec.BorrName</td>
+                        <td>@rec.SsiDn.ToString("0")</td>
+                        <td class="text-end">@rec.IntPd.ToString("N2")</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        @if (Model.TotalPages > 1)
+        {
+            <div class="terminal-banner d-flex justify-content-between mt-2">
+                <span>
+                    @if (Model.HasPreviousPage)
+                    {
+                        <a asp-action="Errors" asp-route-asa="@Model.Assoc" asp-route-page="@(Model.PageNumber - 1)" class="btn-terminal">Prev 50</a>
+                    }
+                </span>
+                <span>
+                    @if (Model.HasNextPage)
+                    {
+                        <a asp-action="Errors" asp-route-asa="@Model.Assoc" asp-route-page="@(Model.PageNumber + 1)" class="btn-terminal">Next 50</a>
+                    }
+                </span>
+            </div>
+        }
+    }
+
+    <div class="terminal-footer">
+        <a asp-action="Select" class="btn-terminal btn-exit">F12=Back</a>
+    </div>
+</div>

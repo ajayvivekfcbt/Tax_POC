@@ -1,0 +1,100 @@
+@model Tx9501.Models.ViewModels.YearSelectListViewModel
+@{
+    ViewData["Title"] = "Tax Year Selection";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9500 - Tax Year Reporting</span>
+        <span class="terminal-right">@DateTime.Now.ToString("MM/dd/yyyy")</span>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ViewBag.StatusMessage as string))
+    {
+        <div class="terminal-message">@ViewBag.StatusMessage</div>
+    }
+
+    <div class="terminal-instructions">
+        Type options, press Enter.
+        <span class="key-hint">1=Process</span>
+        <span class="key-hint">2=Change</span>
+        @if (!Model.IsAuditMode)
+        {
+            <span class="key-hint">9=Customize</span>
+        }
+        <span class="key-hint">F6=Add</span>
+    </div>
+
+    <form method="post" asp-action="Index">
+        @Html.AntiForgeryToken()
+        <div class="table-responsive-nowrap">
+        <table class="terminal-table">
+            <thead>
+                <tr>
+                    <th class="col-opt">Opt</th>
+                    <th>Year</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @for (int i = 0; i < Model.Years.Count; i++)
+                {
+                    var row = Model.Years[i];
+                    <tr>
+                        <td class="col-opt">
+                            <input type="radio"
+                                   name="SelectedOption"
+                                   value="1"
+                                   data-year="@row.TaxYear"
+                                   id="opt1_@i"
+                                   class="assoc-radio" />
+                        </td>
+                        <td>@row.TaxYear</td>
+                        <td>@row.Description</td>
+                        <td>@row.Status</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <input type="hidden" name="SelectedYear" id="selectedYear" />
+        <input type="hidden" name="SelectedOption" id="selectedOpt" value="1" />
+
+        <div class="terminal-footer">
+            @if (!Model.IsAuditMode)
+            {
+                <a asp-action="Add" class="btn-terminal">F6=Add</a>
+                <button type="submit" name="SelectedOption" value="2" class="btn-terminal" id="btnChange">F2=Change</button>
+                <button type="submit" name="SelectedOption" value="9" class="btn-terminal" id="btnCustomize">F9=Customize</button>
+            }
+            <button type="submit" name="SelectedOption" value="1" class="btn-terminal" id="btnProcess">Enter=Process</button>
+            <a asp-controller="TaxReporting" asp-action="Exit" class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    // Clicking a row populates hidden SelectedYear and submits option=1
+    document.querySelectorAll('tbody tr').forEach(function(tr) {
+        tr.addEventListener('click', function() {
+            var radio = tr.querySelector('input[type=radio]');
+            if (radio) {
+                document.getElementById('selectedYear').value = radio.getAttribute('data-year');
+                radio.checked = true;
+            }
+        });
+    });
+    // Change / Customize buttons use the selected year
+    ['btnChange','btnCustomize'].forEach(function(id) {
+        var btn = document.getElementById(id);
+        if (!btn) return;
+        btn.addEventListener('click', function() {
+            var checked = document.querySelector('input[type=radio]:checked');
+            if (checked) document.getElementById('selectedYear').value = checked.getAttribute('data-year');
+        });
+    });
+</script>
+}

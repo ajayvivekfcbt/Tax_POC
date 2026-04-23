@@ -1,0 +1,64 @@
+@model Tx9501.Models.ViewModels.SummaryViewModel
+@{
+    ViewData["Title"] = "Tax Data Summary";
+
+    decimal TotalCountYes  = Model.Rows.Sum(r => r.CountYes);
+    decimal TotalCountNo   = Model.Rows.Sum(r => r.CountNo);
+    decimal TotalAmt1Yes   = Model.Rows.Sum(r => r.Amt1Yes);
+    decimal TotalAmt1No    = Model.Rows.Sum(r => r.Amt1No);
+    decimal TotalAmt2Yes   = Model.Rows.Sum(r => r.Amt2Yes);
+    decimal TotalAmt2No    = Model.Rows.Sum(r => r.Amt2No);
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9520 - Tax Reporting Summary</span>
+        <span class="terminal-right">Year: @Model.TaxYear &nbsp; Form: @Model.FormName</span>
+    </div>
+
+    <div class="table-responsive-nowrap">
+    <table class="terminal-table">
+        <thead>
+            <tr>
+                <th>Assoc</th>
+                <th class="text-end">Count (Y)</th>
+                <th class="text-end">Count (N)</th>
+                <th class="text-end">Amt 1 (Y)</th>
+                <th class="text-end">Amt 1 (N)</th>
+                <th class="text-end">Amt 2 (Y)</th>
+                <th class="text-end">Amt 2 (N)</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    <td>@row.Assoc</td>
+                    <td class="text-end">@row.CountYes.ToString("N0")</td>
+                    <td class="text-end">@row.CountNo.ToString("N0")</td>
+                    <td class="text-end">@row.Amt1Yes.ToString("N2")</td>
+                    <td class="text-end">@row.Amt1No.ToString("N2")</td>
+                    <td class="text-end">@row.Amt2Yes.ToString("N2")</td>
+                    <td class="text-end">@row.Amt2No.ToString("N2")</td>
+                </tr>
+            }
+        </tbody>
+        <tfoot>
+            <tr class="terminal-total">
+                <td><strong>Total</strong></td>
+                <td class="text-end"><strong>@TotalCountYes.ToString("N0")</strong></td>
+                <td class="text-end"><strong>@TotalCountNo.ToString("N0")</strong></td>
+                <td class="text-end"><strong>@TotalAmt1Yes.ToString("N2")</strong></td>
+                <td class="text-end"><strong>@TotalAmt1No.ToString("N2")</strong></td>
+                <td class="text-end"><strong>@TotalAmt2Yes.ToString("N2")</strong></td>
+                <td class="text-end"><strong>@TotalAmt2No.ToString("N2")</strong></td>
+            </tr>
+        </tfoot>
+    </table>
+    </div>
+
+    <div class="terminal-footer">
+        <a asp-controller="TaxReporting" asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
+        <a asp-controller="TaxReporting" asp-action="Exit"     class="btn-terminal btn-exit">F3=Exit</a>
+    </div>
+</div>

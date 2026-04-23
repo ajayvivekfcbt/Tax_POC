@@ -1,0 +1,78 @@
+@model Tx9501.Models.ViewModels.AssociationSelectViewModel
+@{
+    ViewData["Title"] = "Select Association";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9505 - Select Association</span>
+        <span class="terminal-right">@DateTime.Now.ToString("MM/dd/yyyy")</span>
+    </div>
+
+    <div class="terminal-instructions">
+        Select one or more associations, or check <strong>ALL</strong>.
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="ReturnAction" value="@Model.ReturnAction" />
+        <input type="hidden" name="ReturnController" value="@Model.ReturnController" />
+
+        <div class="terminal-row" style="margin-bottom:.75rem;">
+            <label>
+                <input type="checkbox" name="SelectAll" value="true"
+                       @(Model.SelectAll ? "checked" : "") id="chkAll" />
+                &nbsp;<strong>ALL Associations</strong>
+            </label>
+        </div>
+
+        <div class="table-responsive-nowrap">
+        <table class="terminal-table" id="assnTable">
+            <thead>
+                <tr>
+                    <th class="col-opt">Sel</th>
+                    <th>Corp</th>
+                    <th>Association Name</th>
+                    <th>Type</th>
+                    <th>Library</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var a in Model.Associations)
+                {
+                    <tr>
+                        <td class="col-opt">
+                            <input type="checkbox" name="SelectedCorps" value="@a.CorpCode"
+                                   @(Model.SelectedCorps.Contains(a.CorpCode) ? "checked" : "")
+                                   class="assn-chk" />
+                        </td>
+                        <td>@a.CorpCode</td>
+                        <td>@a.Description</td>
+                        <td>@a.AssnType</td>
+                        <td>@a.BranchLib</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Select</button>
+            <a asp-controller="TaxReporting" asp-action="Exit" class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    var chkAll   = document.getElementById('chkAll');
+    var assnTbl  = document.getElementById('assnTable');
+    var assnChks = assnTbl.querySelectorAll('.assn-chk');
+
+    chkAll.addEventListener('change', function() {
+        assnChks.forEach(function(c) { c.disabled = chkAll.checked; });
+    });
+    // Initialise disabled state on page load
+    assnChks.forEach(function(c) { c.disabled = chkAll.checked; });
+</script>
+}

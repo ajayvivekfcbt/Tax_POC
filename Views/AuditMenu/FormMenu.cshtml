@@ -1,0 +1,40 @@
+@model Tx9501.Models.ViewModels.AuditFormMenuViewModel
+@{
+    ViewData["Title"] = "Audit Form Menu";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9511 - @Model.SelectedForm - Audit Actions</span>
+        <span class="terminal-right">Year: @Model.TaxYear</span>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ViewBag.StatusMessage as string))
+    {
+        <div class="terminal-message">@ViewBag.StatusMessage</div>
+    }
+
+    <div class="terminal-instructions">Select an action and press Enter.</div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <div class="form-options">
+            @foreach (var act in Model.Actions)
+            {
+                <div class="terminal-row">
+                    <label>
+                        <input type="radio" name="SelectedAction" value="@act.ActionCode"
+                               @(Model.SelectedAction == act.ActionCode ? "checked" : "") />
+                        &nbsp;@act.Description
+                    </label>
+                </div>
+            }
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Select</button>
+            <button type="submit" name="BackPressed" value="true" class="btn-terminal btn-exit">F12=Back</button>
+            <button type="submit" name="ExitPressed" value="true" class="btn-terminal btn-exit">F3=Exit</button>
+        </div>
+    </form>
+</div>

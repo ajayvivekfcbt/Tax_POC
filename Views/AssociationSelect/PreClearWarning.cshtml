@@ -1,0 +1,59 @@
+@model Tx9501.Models.ViewModels.PreClearWarningViewModel
+@{
+    ViewData["Title"] = "Warning - Clear Tax Data";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9506 - Clear Tax Data - Warning</span>
+    </div>
+
+    <div class="terminal-message terminal-warning">
+        WARNING: The following associations will have their @Model.FormName data DELETED
+        for tax year @Model.TaxYear.  This action cannot be undone.
+    </div>
+
+    <div class="table-responsive-nowrap">
+    <table class="terminal-table">
+        <thead>
+            <tr>
+                <th>Corp</th>
+                <th>Association Name</th>
+            </tr>
+        </thead>
+        <tbody>
+            @if (Model.IsAll)
+            {
+                <tr><td colspan="2">ALL Associations</td></tr>
+            }
+            else
+            {
+                @foreach (var a in Model.Associations)
+                {
+                    <tr>
+                        <td>@a.CorpCode</td>
+                        <td>@a.Description</td>
+                    </tr>
+                }
+            }
+        </tbody>
+    </table>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="ReturnController" />
+        <input type="hidden" asp-for="ReturnAction" />
+        <input type="hidden" asp-for="TaxYear" />
+        <input type="hidden" asp-for="FormName" />
+
+        <div class="terminal-footer">
+            <button type="submit" name="Confirmed" value="true" class="btn-terminal btn-danger">
+                Enter=Confirm Clear
+            </button>
+            <a asp-controller="TaxReporting" asp-action="MainMenu" class="btn-terminal btn-exit">
+                F12=Cancel
+            </a>
+        </div>
+    </form>
+</div>

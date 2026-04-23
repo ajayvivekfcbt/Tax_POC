@@ -1,0 +1,48 @@
+@model Tx9501.Models.ViewModels.YearSelectListViewModel
+@{
+    ViewData["Title"] = "Audit - Year Select";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9512 - Audit Mode - Select Tax Year</span>
+        <span class="terminal-right">@DateTime.Now.ToString("MM/dd/yyyy")</span>
+    </div>
+
+    <div class="terminal-instructions">Type 1 to select a year for audit, press Enter.</div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <div class="table-responsive-nowrap">
+        <table class="terminal-table">
+            <thead>
+                <tr>
+                    <th class="col-opt">Opt</th>
+                    <th>Year</th>
+                    <th>Description</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var row in Model.Years)
+                {
+                    <tr>
+                        <td class="col-opt">
+                            <input type="radio" name="SelectedYear" value="@row.TaxYear"
+                                   class="assoc-radio" />
+                        </td>
+                        <td>@row.TaxYear</td>
+                        <td>@row.Description</td>
+                        <td>@row.Status</td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Process</button>
+            <a asp-controller="TaxReporting" asp-action="Exit" class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+    </form>
+</div>

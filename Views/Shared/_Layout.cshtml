@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] — Tax Reporting System</title>
+    <!-- Bootstrap 5 -->
+    <link rel="stylesheet"
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+          crossorigin="anonymous" />
+    <link rel="stylesheet" href="~/css/site.css" />
+</head>
+<body>
+    <nav class="navbar navbar-dark px-4 py-2">
+        <span class="navbar-brand">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2" style="vertical-align:-3px;margin-right:6px;">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+            </svg>
+            Tax Reporting System
+        </span>
+        <span class="nav-badge">TX9501 &bull; IBM i</span>
+    </nav>
+
+    <main class="container-fluid px-3 py-3" style="max-width:100%;overflow-x:hidden;">
+        @RenderBody()
+    </main>
+
+    <div id="navGuardNotice"
+         style="display:none;position:fixed;bottom:12px;right:12px;z-index:1050;background:#1f2937;color:#f9fafb;padding:8px 12px;border:1px solid #4b5563;border-radius:4px;font-size:0.85rem;">
+        Browser navigation is disabled. Use screen buttons.
+    </div>
+
+    <footer class="text-center small py-2 border-top">
+        IBM i Back-End &bull; ASP.NET Core Front-End
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+            crossorigin="anonymous"></script>
+
+    <!-- ── Global: highlight selected table row when radio/opt-input is changed ── -->
+    <script>
+    (function () {
+        var historyGuardEnabled = true;
+        var navNoticeTimer = null;
+        var maskedBrowserUrl = '/';
+
+        function isEditableTarget(target) {
+            if (!target || !target.tagName) return false;
+            var tag = target.tagName.toUpperCase();
+            return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable;
+        }
+
+        function enableHistoryGuard() {
+            if (!historyGuardEnabled) return;
+            try {
+                history.replaceState({ navGuard: true }, '', maskedBrowserUrl);
+                history.pushState({ navGuard: true }, '', maskedBrowserUrl);
+            } catch (_) {
+                // Some browsers/restrictions may block history state operations.
+            }
+        }
+
+        function disableHistoryGuardForProgrammaticNav() {
+            historyGuardEnabled = false;
+        }
+
+        function showNavGuardNotice() {
+            var notice = document.getElementById('navGuardNotice');
+            if (!notice) return;
+            notice.style.display = 'block';
+            if (navNoticeTimer) {
+                clearTimeout(navNoticeTimer);
+            }
+            navNoticeTimer = setTimeout(function () {
+                notice.style.display = 'none';
+            }, 1500);
+        }
+
+        function markActiveField(input) {
+            document.querySelectorAll('.is-active-field').forEach(function (el) {
+                el.classList.remove('is-active-field');
+            });
+            if (input && input.classList) {
+                input.classList.add('is-active-field');
+            }
+        }
+
+        function highlightRow(input) {
+            // clear all highlighted rows in the same table
+            var table = input.closest('table');
+            if (!table) return;
+            table.querySelectorAll('tr.row-selected').forEach(function (r) {
+                r.classList.remove('row-selected');
+            });
+            // highlight the row containing this input
+            var row = input.closest('tr');
+            if (row) row.classList.add('row-selected');
+        }
+
+        // Wire up on DOM ready and after any dynamic content
+        document.addEventListener('DOMContentLoaded', function () {
+            enableHistoryGuard();
+
+            // radio buttons (year-select, audit-select, etc.)
+            document.querySelectorAll('input[type="radio"]').forEach(function (radio) {
+                radio.addEventListener('change', function () { highlightRow(this); });
+                // restore highlight on page load if pre-checked
+                if (radio.checked) highlightRow(radio);
+            });
+
+            // opt-input text boxes (Extract list, etc.) – highlight on focus / keyup
+            document.querySelectorAll('.opt-input').forEach(function (inp) {
+                inp.addEventListener('focus', function () { markActiveField(this); highlightRow(this); });
+                inp.addEventListener('click', function () { markActiveField(this); highlightRow(this); });
+                inp.addEventListener('keyup',  function () { highlightRow(this); });
+            });
+
+            // all form fields: strong active highlight for cursor/click position
+            document.querySelectorAll('input, select, textarea').forEach(function (el) {
+                if (el.type === 'hidden') return;
+                el.addEventListener('focus', function () { markActiveField(this); });
+                el.addEventListener('click', function () { markActiveField(this); });
+            });
+
+            document.addEventListener('focusout', function (e) {
+                if (!e.target || !e.target.matches) return;
+                if (!e.target.matches('input, select, textarea')) return;
+                if (e.target.classList) e.target.classList.remove('is-active-field');
+            });
+
+            // clicking anywhere on a table row selects it and checks its radio (if any)
+            document.querySelectorAll('.terminal-table tbody tr').forEach(function (tr) {
+                tr.addEventListener('click', function (e) {
+                    // don't double-fire when clicking the radio itself
+                    if (e.target.tagName === 'INPUT') return;
+                    var radio = tr.querySelector('input[type="radio"]');
+                    if (radio) {
+                        radio.checked = true;
+                        radio.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                    var optInp = tr.querySelector('.opt-input');
+                    if (optInp) { optInp.focus(); markActiveField(optInp); highlightRow(optInp); }
+                });
+            });
+
+            // Allow navigation only through in-screen links/buttons.
+            document.querySelectorAll('a, button[type="submit"], button[data-hotkey]').forEach(function (el) {
+                el.addEventListener('click', function () {
+                    disableHistoryGuardForProgrammaticNav();
+                });
+            });
+        });
+
+        window.addEventListener('popstate', function () {
+            if (!historyGuardEnabled) return;
+            try {
+                history.pushState({ navGuard: true }, '', maskedBrowserUrl);
+                showNavGuardNotice();
+            } catch (_) {
+            }
+        });
+
+        // ── F3 key: go back to main menu ──
+        document.addEventListener('keydown', function (e) {
+            // Block browser backward/forward shortcuts.
+            if ((e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) ||
+                (e.ctrlKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight'))) {
+                e.preventDefault();
+                showNavGuardNotice();
+                return;
+            }
+
+            // Prevent Backspace from acting as browser-back outside editable fields.
+            if (e.key === 'Backspace' && !isEditableTarget(e.target)) {
+                e.preventDefault();
+                showNavGuardNotice();
+                return;
+            }
+
+            if (e.key === 'F3' || e.keyCode === 114) {
+                e.preventDefault();
+                var hotkeyTarget = document.querySelector('[data-hotkey="F3"]');
+                if (hotkeyTarget) {
+                    disableHistoryGuardForProgrammaticNav();
+                    if (hotkeyTarget.tagName === 'A' && hotkeyTarget.href) {
+                        window.location.href = hotkeyTarget.href;
+                    } else {
+                        hotkeyTarget.click();
+                    }
+                    return;
+                }
+
+                disableHistoryGuardForProgrammaticNav();
+                window.location.href = '@Url.Action("MainMenu", "TaxReporting")';
+            }
+        });
+    })();
+    </script>
+
+    @RenderSection("Scripts", required: false)
+</body>
+</html>

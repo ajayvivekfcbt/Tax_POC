@@ -1,0 +1,226 @@
+@model Tx9501.Models.ViewModels.MaintainRecordViewModel
+@using Tx9501.Models.Entities
+@{
+    ViewData["Title"] = Model.Mode == "ADD" ? "Add Tax Record" : "Change Tax Record";
+    var r = Model.Record;
+    bool is1098 = Model.FormName.StartsWith("1098", StringComparison.OrdinalIgnoreCase);
+    bool isMisc = Model.FormName is "1099-MISC" or "1099-NEC";
+}
+
+<style>
+    .terminal-mandatory::after {
+        content: " *";
+        color: #ff0000;
+        font-weight: bold;
+    }
+</style>
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">
+            TX9525 - @(Model.Mode == "ADD" ? "Add" : "Change") @Model.FormName Record
+        </span>
+        <span class="terminal-right">Year: @r.TaxYear</span>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="Mode" />
+        <input type="hidden" asp-for="FormName" />
+        <input type="hidden" asp-for="Record.TaxYear" />
+        <input type="hidden" asp-for="Record.Form" />
+        <input type="hidden" asp-for="Record.Asa" />
+        <input type="hidden" asp-for="Record.MbrNo" />
+        <input type="hidden" asp-for="Record.MbrSub" />
+
+        <!-- ─── Key fields (display only) ──────────────────────────── -->
+        <div class="terminal-section">
+            <div class="terminal-row">
+                <span class="terminal-label">Assoc</span><span class="terminal-value">@r.Asa</span>
+                <span class="terminal-label ms-4">Member</span><span class="terminal-value">@r.MbrNo.ToString("0") @r.MbrSub</span>
+            </div>
+        </div>
+
+        <!-- ─── Customer Info Window (CUSTWDW) ────────────────────── -->
+        @if (!string.IsNullOrEmpty(Model.CustomerIdNum))
+        {
+            <div class="terminal-section" style="border: 2px solid #0084FF; padding: 8px; background-color: #f0f8ff;">
+                <div style="font-size: 0.9em;">
+                    <div class="terminal-row">
+                        <span class="terminal-label" style="min-width: 120px;">Taxpayer ID:</span>
+                        <span class="terminal-value">@Model.CustomerIdCode @Model.CustomerIdNum</span>
+                    </div>
+                    <div class="terminal-row">
+                        <span class="terminal-label" style="min-width: 120px;">Name:</span>
+                        <span class="terminal-value">@Model.CustomerName1</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(Model.CustomerName2))
+                    {
+                        <div class="terminal-row">
+                            <span class="terminal-label" style="min-width: 120px;"></span>
+                            <span class="terminal-value">@Model.CustomerName2</span>
+                        </div>
+                    }
+                    <div class="terminal-row">
+                        <span class="terminal-label" style="min-width: 120px;">Address:</span>
+                        <span class="terminal-value">@Model.CustomerName3</span>
+                    </div>
+                    @if (!string.IsNullOrEmpty(Model.CustomerName4))
+                    {
+                        <div class="terminal-row">
+                            <span class="terminal-label" style="min-width: 120px;"></span>
+                            <span class="terminal-value">@Model.CustomerName4</span>
+                        </div>
+                    }
+                </div>
+            </div>
+        }
+
+        <!-- ─── Borrower name / address ─────────────────────────────── -->
+        <div class="terminal-section">
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">SSN/EIN</label>
+                <input asp-for="Record.SsiDn" class="terminal-input input-ssn" type="number" step="1" min="0" />
+                <label class="terminal-label ms-3 terminal-mandatory">Type</label>
+                <input asp-for="Record.SsiDc" class="terminal-input input-xs" maxlength="1" />
+            </div>
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">Name</label>
+                <input asp-for="Record.BorrName" class="terminal-input input-lg" maxlength="35" />
+            </div>
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">Address</label>
+                <input asp-for="Record.BorrAddr"  class="terminal-input input-lg" maxlength="30" />
+                <input asp-for="Record.BorrAddrX" class="terminal-input input-md ms-2" maxlength="30" placeholder="Addr Line 2" />
+            </div>
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">City</label>
+                <input asp-for="Record.BorrCity"  class="terminal-input input-md" maxlength="25" />
+                <label class="terminal-label ms-2 terminal-mandatory">St</label>
+                <input asp-for="Record.BorrState" class="terminal-input input-xs" maxlength="2" />
+                <label class="terminal-label ms-2 terminal-mandatory">Zip</label>
+                <input asp-for="Record.BorrZip"   class="terminal-input input-zip" type="number" step="1" min="0" />
+            </div>
+        </div>
+
+        <!-- ─── IRS flags ────────────────────────────────────────────── -->
+        <div class="terminal-section">
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">Report to IRS</label>
+                <select asp-for="Record.ReportToIrs" class="terminal-input input-xs">
+                    <option value="">-- Select --</option>
+                    <option value="Y">Y</option>
+                    <option value="N">N</option>
+                </select>
+                <label class="terminal-label ms-3">Corrected</label>
+                <select asp-for="Record.CorrIn" class="terminal-input input-xs">
+                    <option value="">No</option>
+                    <option value="X">X</option>
+                </select>
+            </div>
+            <div class="terminal-row">
+                <label class="terminal-label terminal-mandatory">Non-Report Reason</label>
+                <input asp-for="Record.NonRptReason" class="terminal-input input-lg" maxlength="40" placeholder="Required if Report to IRS = N" />
+            </div>
+        </div>
+
+        <!-- ─── Form-specific amounts ────────────────────────────────── -->
+        @if (is1098)
+        {
+            <div class="terminal-section">
+                <div class="terminal-row">
+                    <label class="terminal-label">Interest Paid</label>
+                    <input asp-for="Record.IntPd"   class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Points</label>
+                    <input asp-for="Record.Points"  class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Interest (N)</label>
+                    <input asp-for="Record.InterN"  class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Wth Held</label>
+                    <input asp-for="Record.ErnWth"  class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Unpaid Prin.</label>
+                    <input asp-for="Record.UnpPrn"  class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Prop Val</label>
+                    <input asp-for="Record.FmVal"   class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <!-- 1098 security/property fields -->
+                <div class="terminal-row">
+                    <label class="terminal-label">Orig Date</label>
+                    <input asp-for="Record.OrigDate" class="terminal-input input-sm" maxlength="8" />
+                    <label class="terminal-label ms-3">Acq Date</label>
+                    <input asp-for="Record.MtgAcqDt" class="terminal-input input-sm" maxlength="8" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Sec Same</label>
+                    <input asp-for="Record.SecSame"  class="terminal-input input-xs" maxlength="1" />
+                    <label class="terminal-label ms-3">Sec Addr</label>
+                    <input asp-for="Record.SecAddr"  class="terminal-input input-md" maxlength="40" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Sec Desc</label>
+                    <input asp-for="Record.SecDesc"  class="terminal-input input-md" maxlength="40" />
+                    <label class="terminal-label ms-3">Sec Num</label>
+                    <input asp-for="Record.SecNum"   class="terminal-input input-sm" type="number" step="1" min="0" />
+                </div>
+            </div>
+        }
+
+        @if (isMisc)
+        {
+            <div class="terminal-section">
+                <div class="terminal-row">
+                    <label class="terminal-label">Compensation</label>
+                    <input asp-for="Record.Compen"  class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Rents</label>
+                    <input asp-for="Record.Rents"   class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Med Payments</label>
+                    <input asp-for="Record.MedPay"  class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Legal Pay</label>
+                    <input asp-for="Record.LglPay"  class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Other</label>
+                    <input asp-for="Record.Other"   class="terminal-input input-amt" type="number" step="0.01" />
+                    <label class="terminal-label ms-3">Wth Held</label>
+                    <input asp-for="Record.WthHeld" class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+            </div>
+        }
+
+        @if (Model.FormName == "1099-A")
+        {
+            <div class="terminal-section">
+                <div class="terminal-row">
+                    <label class="terminal-label">Acq/Aband Dt</label>
+                    <input asp-for="Record.DteAqr"  class="terminal-input input-sm" maxlength="8" />
+                    <label class="terminal-label ms-3">FMV</label>
+                    <input asp-for="Record.FmVal"   class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Prop Desc</label>
+                    <input asp-for="Record.PrDesc"  class="terminal-input input-lg" maxlength="40" />
+                </div>
+                <div class="terminal-row">
+                    <label class="terminal-label">Foreign</label>
+                    <input asp-for="Record.Foreign" class="terminal-input input-xs" maxlength="1" />
+                    <label class="terminal-label ms-3">Unpaid Bal</label>
+                    <input asp-for="Record.UnpPrn"  class="terminal-input input-amt" type="number" step="0.01" />
+                </div>
+            </div>
+        }
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Save</button>
+            @if (Model.Mode != "ADD")
+            {
+                <button type="submit" name="DeletePressed" value="true" class="btn-terminal btn-danger">F14=Delete</button>
+            }
+            <button type="submit" name="ExitPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
+        </div>
+    </form>
+</div>

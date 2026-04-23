@@ -1,0 +1,121 @@
+@model Tx9501.Models.ViewModels.ExtractListViewModel
+@{
+    ViewData["Title"] = "IRS Extract List";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9560 - IRS Extracts</span>
+        <span class="terminal-right">Year: @Model.TaxYear</span>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ViewBag.StatusMessage as string))
+    {
+        <div class="terminal-message">@ViewBag.StatusMessage</div>
+    }
+
+    <div class="terminal-instructions">
+        <span class="key-hint">1=Select/Build</span>
+        <span class="key-hint">4=Clear</span>
+        <span class="key-hint">5=Transmit</span>
+        <span class="key-hint">9=Display</span>
+        <span class="key-hint">X=Download</span>
+        <span class="key-hint">F6=Add</span>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="TaxYear" value="@Model.TaxYear" />
+        <input type="hidden" name="SelectedOption" id="selectedOption" />
+        <input type="hidden" name="SelectedSeq" id="selectedSeq" />
+
+        <div class="table-responsive-nowrap">
+        <table class="terminal-table">
+            <thead>
+                <tr>
+                    <th class="col-opt">Opt</th>
+                    <th>Seq</th>
+                    <th>Description</th>
+                    <th>Extract Date</th>
+                    <th>Select Date</th>
+                    <th>Transmitter</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (Model.Extracts is null || !Model.Extracts.Any())
+                {
+                    <tr>
+                        <td colspan="6" class="text-warning font-monospace py-2">
+                            No IRS extracts found for this year. Use F6=Add to create an extract.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var e in Model.Extracts)
+                    {
+                        <tr>
+                            <td class="col-opt">
+                                <input type="text" maxlength="1"
+                                       class="opt-input" style="width:2rem;"
+                                       data-seq="@e.ExtSeq" />
+                            </td>
+                            <td>@e.ExtSeq</td>
+                            <td>@e.ExtDesc</td>
+                            <td>@e.ExtDate</td>
+                            <td>@e.ExtSelDat</td>
+                            <td>@e.XmtrName</td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Execute</button>
+            <button type="submit" name="AddPressed" value="true" class="btn-terminal">F6=Add</button>
+            <a asp-controller="TaxReporting" asp-action="MainMenu" class="btn-terminal btn-exit">F12=Back</a>
+            <a asp-controller="TaxReporting" asp-action="Exit"     class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+    // Resolve exactly one selected option row and post it via hidden fields.
+    var form = document.querySelector('form');
+    var optionHidden = document.getElementById('selectedOption');
+    var seqHidden = document.getElementById('selectedSeq');
+    var optionInputs = Array.from(document.querySelectorAll('.opt-input'));
+
+    optionInputs.forEach(function(inp) {
+        inp.addEventListener('input', function() {
+            var val = (inp.value || '').trim().toUpperCase();
+            if (!val) return;
+
+            optionInputs.forEach(function(other) {
+                if (other !== inp) other.value = '';
+            });
+
+            optionHidden.value = val;
+            seqHidden.value = inp.getAttribute('data-seq') || '';
+        });
+    });
+
+    form.addEventListener('submit', function() {
+        var chosen = optionInputs.find(function(inp) {
+            return (inp.value || '').trim().length > 0;
+        });
+
+        if (!chosen) {
+            optionHidden.value = '';
+            seqHidden.value = '';
+            return;
+        }
+
+        optionHidden.value = (chosen.value || '').trim().toUpperCase();
+        seqHidden.value = chosen.getAttribute('data-seq') || '';
+    });
+</script>
+}

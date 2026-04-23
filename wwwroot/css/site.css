@@ -1,0 +1,536 @@
+/* ─────────────────────────────────────────────────────────────────────────
+    site.css – Dark High-Contrast Theme  ·  Tax Reporting System TX9501
+    Dark background, strong contrast, vivid accents.
+    ───────────────────────────────────────────────────────────────────────── */
+
+/* ── Color palette ──────────────────────────────────────────────────────── */
+:root {
+    /* Backgrounds */
+    --bg:              radial-gradient(circle at 10% 10%, #0b1020 0%, #050913 45%, #020617 100%);
+    --panel-bg:        #0f172a;
+    --panel-border:    #334155;
+    --header-bg:       linear-gradient(120deg, #312e81 0%, #0f766e 55%, #0369a1 100%);
+    --rule-color:      #334155;
+    --row-hover:       #1e293b;
+    --row-selected:    #0f766e;
+
+    /* Text */
+    --text-main:       #e2e8f0;
+    --text-muted:      #94a3b8;
+    --text-white:      #ffffff;
+    --selected-text:   #f8fafc;
+
+    /* Accent colours */
+    --indigo:          #818cf8;
+    --blue:            #38bdf8;
+    --teal:            #2dd4bf;
+    --green:           #22c55e;
+    --amber:           #f59e0b;
+    --orange:          #fb923c;
+    --red:             #f87171;
+    --purple:          #c084fc;
+    --pink:            #f472b6;
+}
+
+/* ── Base ───────────────────────────────────────────────────────────────── */
+html, body {
+    height: 100%;
+    overflow-x: hidden;          /* no horizontal scrollbar on body */
+}
+
+body {
+    background: var(--bg);
+    color: var(--text-main);
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    font-size: 0.875rem;
+}
+
+/* ── Full-width layout ──────────────────────────────────────────────────── */
+/* main is container-fluid; keep panels as wide as the viewport allows      */
+.terminal-panel {
+    width: 100%;
+    min-width: 0;               /* allow shrink inside flex/grid            */
+    box-sizing: border-box;
+}
+
+/* ── No-wrap helpers ────────────────────────────────────────────────────── */
+/* Table cells must never wrap — horizontal scroll on the wrapper instead   */
+.table-responsive-nowrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.terminal-table th,
+.terminal-table td {
+    white-space: nowrap;
+}
+
+/* Form rows (label + inputs) must stay on one line                         */
+.terminal-row {
+    flex-wrap: nowrap !important;
+    white-space: nowrap;
+}
+
+.terminal-row label,
+.terminal-row span.terminal-label {
+    flex-shrink: 0;
+}
+
+/* Footer button bars must not wrap onto multiple lines                     */
+.terminal-footer {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+}
+
+/* Key-hint badges — never wrap the text inside them                        */
+.key-hint {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Instruction line itself can scroll horizontally rather than wrap         */
+.terminal-instructions {
+    white-space: nowrap;
+    overflow-x: auto;
+}
+
+/* Input sizing — relative units so they scale to viewport                  */
+.input-xs  { width: 3rem;   min-width: 3rem; }
+.input-sm  { width: 8rem;   min-width: 6rem; }
+.input-ssn { width: 10rem;  min-width: 9rem; }
+.input-md  { width: 14rem;  min-width: 10rem; }
+.input-zip { width: 7rem;   min-width: 6rem; }
+.input-lg  { width: 22rem;  min-width: 14rem; }
+
+/* ── Main panel (card) ──────────────────────────────────────────────────── */
+.terminal-panel {
+    background-color: var(--panel-bg);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 0 0 1.2rem 0;
+    box-shadow: 0 10px 30px rgba(2, 6, 23, 0.7), 0 2px 10px rgba(15, 118, 110, 0.2);
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+
+/* ── Panel header bar ────────────────────────────────────────────────────── */
+.terminal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--header-bg);
+    padding: 0.6rem 1.2rem;
+    margin-bottom: 1rem;
+}
+
+.terminal-title {
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.95rem;
+    letter-spacing: 0.03em;
+}
+
+.terminal-right {
+    color: #cbd5e1;
+    font-size: 0.82rem;
+}
+
+/* ── Inner content padding ───────────────────────────────────────────────── */
+.terminal-panel > *:not(.terminal-header) {
+    padding-left: 1.2rem;
+    padding-right: 1.2rem;
+}
+.terminal-panel > .terminal-header + * {
+    margin-top: 0;
+}
+
+/* ── Banner ──────────────────────────────────────────────────────────────── */
+.terminal-banner {
+    color: var(--blue);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* ── Separator rule ──────────────────────────────────────────────────────── */
+.terminal-rule {
+    border-color: var(--rule-color);
+    opacity: 1;
+    margin: 0.5rem 0;
+}
+
+/* ── Instructions line ──────────────────────────────────────────────────── */
+.terminal-instructions {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    margin-bottom: 0.6rem;
+}
+
+/* ── Key hint badges ─────────────────────────────────────────────────────── */
+.key-hint {
+    display: inline-block;
+    background-color: #3f2f13;
+    color: #fcd34d;
+    border: 1px solid #b45309;
+    border-radius: 4px;
+    padding: 0.05rem 0.45rem;
+    margin-right: 0.3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+/* ── Field labels ────────────────────────────────────────────────────────── */
+.terminal-label {
+    color: #7dd3fc;
+    font-weight: 600;
+    min-width: 130px;
+    display: inline-block;
+}
+
+.terminal-value {
+    color: var(--text-main);
+}
+
+/* ── Form rows ───────────────────────────────────────────────────────────── */
+.terminal-row {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    border-bottom: 1px solid var(--rule-color);
+    padding: 0.4rem 0.1rem;
+}
+
+.terminal-row:hover {
+    background-color: var(--row-hover);
+    border-radius: 4px;
+}
+
+.terminal-row.row-selected {
+    background: linear-gradient(90deg, rgba(191, 219, 254, 0.8) 0%, rgba(186, 230, 253, 0.8) 100%);
+    border-left: 4px solid var(--blue);
+    border-radius: 6px;
+    padding-left: 0.4rem;
+    box-shadow: inset 0 0 0 1px rgba(14,165,233,0.25);
+}
+
+/* ── Status messages ─────────────────────────────────────────────────────── */
+.terminal-message {
+    color: #fef3c7;
+    background-color: #3f2f13;
+    border: 1px solid #b45309;
+    border-left: 4px solid var(--amber);
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    margin-bottom: 0.7rem;
+    font-size: 0.85rem;
+}
+
+/* ── Error text ──────────────────────────────────────────────────────────── */
+.terminal-error {
+    color: var(--red);
+    font-size: 0.78rem;
+    margin-left: 0.3rem;
+}
+
+/* ── Footer button bar ───────────────────────────────────────────────────── */
+.terminal-footer {
+    margin-top: 1rem;
+    padding-top: 0.7rem;
+    border-top: 2px solid var(--rule-color);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+/* ── Action / function-key buttons ──────────────────────────────────────── */
+.btn-terminal {
+    background: linear-gradient(135deg, var(--indigo) 0%, var(--blue) 100%);
+    color: #ffffff;
+    border: none;
+    border-radius: 6px;
+    padding: 0.35rem 0.9rem;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-block;
+    transition: opacity 0.15s, transform 0.1s, box-shadow 0.15s;
+    box-shadow: 0 2px 6px rgba(79,70,229,0.25);
+}
+
+.btn-terminal:hover {
+    opacity: 0.88;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(79,70,229,0.35);
+    color: #ffffff;
+    text-decoration: none;
+}
+
+/* Exit / back buttons – red */
+.btn-exit {
+    background: linear-gradient(135deg, var(--red) 0%, var(--orange) 100%);
+    box-shadow: 0 2px 6px rgba(220,38,38,0.25);
+}
+
+.btn-exit:hover {
+    box-shadow: 0 4px 12px rgba(220,38,38,0.35);
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.terminal-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+    margin-bottom: 0.3rem;
+}
+
+.terminal-table thead th {
+    background: linear-gradient(135deg, #312e81 0%, #0369a1 100%);
+    color: #ffffff;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    border: none;
+}
+
+.terminal-table thead th:first-child { border-radius: 6px 0 0 0; }
+.terminal-table thead th:last-child  { border-radius: 0 6px 0 0; }
+
+.terminal-table tbody tr {
+    border-bottom: 1px solid var(--rule-color);
+    transition: background-color 0.12s;
+}
+
+.terminal-table tbody tr:nth-child(even) {
+    background-color: #111827;
+}
+
+.terminal-table tbody tr:hover {
+    background-color: var(--row-hover);
+    cursor: pointer;
+}
+
+/* Selected row highlight */
+.terminal-table tbody tr.row-selected,
+.terminal-table tbody tr.row-selected td {
+    background-color: var(--row-selected) !important;
+    color: var(--selected-text) !important;
+    font-weight: 600;
+    outline: 2px solid #67e8f9;
+    outline-offset: -1px;
+}
+
+.terminal-table td {
+    padding: 0.4rem 0.75rem;
+    color: var(--text-main);
+}
+
+.col-opt {
+    width: 2.5rem;
+    text-align: center;
+}
+
+/* ── Radio / opt inputs ──────────────────────────────────────────────────── */
+.assoc-radio,
+.terminal-opt-radio {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 1.15em;
+    height: 1.15em;
+    border: 2px solid #64748b;
+    background-color: #0b1220;
+    cursor: pointer;
+    position: relative;
+    top: 2px;
+    border-radius: 50%;
+    transition: all 0.15s;
+}
+
+.assoc-radio:checked,
+.terminal-opt-radio:checked {
+    background-color: var(--indigo);
+    border-color: var(--indigo);
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.2);
+}
+
+.assoc-radio:focus,
+.terminal-opt-radio:focus {
+    outline: 2px solid var(--blue);
+    outline-offset: 2px;
+}
+
+/* Single-char opt text input */
+.opt-input {
+    background-color: #0b1220;
+    color: #e2e8f0;
+    border: 2px solid #334155;
+    border-radius: 4px;
+    font-size: 0.875rem;
+    font-weight: 700;
+    text-align: center;
+    padding: 0.1rem 0.2rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.opt-input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(14,165,233,0.25), 0 0 0 6px rgba(79,70,229,0.12);
+    outline: none;
+    color: #f8fafc;
+    background-color: #0b1a2c;
+}
+
+/* ── Text inputs ─────────────────────────────────────────────────────────── */
+.terminal-input,
+.form-control.terminal-input,
+select.terminal-input {
+    background-color: #0b1220;
+    color: var(--text-main);
+    border: 2px solid #334155;
+    border-radius: 6px;
+    font-size: 0.875rem;
+    padding: 0.3rem 0.6rem;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.terminal-input:focus,
+select.terminal-input:focus {
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(14,165,233,0.25), 0 0 0 6px rgba(79,70,229,0.12);
+    outline: none;
+    background-color: #0b1a2c;
+}
+
+.terminal-input.is-active-field,
+select.terminal-input.is-active-field,
+.opt-input.is-active-field,
+textarea.terminal-input.is-active-field {
+    border-color: var(--blue);
+    background-color: #0b1a2c;
+    box-shadow: 0 0 0 3px rgba(14,165,233,0.30), 0 0 0 8px rgba(6,182,212,0.18), 0 0 14px rgba(14,165,233,0.28);
+    animation: activeFieldPulse 1.2s ease-in-out infinite;
+}
+
+textarea.terminal-input,
+input.terminal-input,
+select.terminal-input,
+.opt-input {
+    transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+@keyframes activeFieldPulse {
+    0% {
+        box-shadow: 0 0 0 3px rgba(14,165,233,0.30), 0 0 0 8px rgba(6,182,212,0.18), 0 0 10px rgba(14,165,233,0.20);
+    }
+    50% {
+        box-shadow: 0 0 0 3px rgba(14,165,233,0.36), 0 0 0 9px rgba(6,182,212,0.22), 0 0 18px rgba(14,165,233,0.34);
+    }
+    100% {
+        box-shadow: 0 0 0 3px rgba(14,165,233,0.30), 0 0 0 8px rgba(6,182,212,0.18), 0 0 10px rgba(14,165,233,0.20);
+    }
+}
+
+.input-sm { width: 11rem; }
+
+/* ── Alerts ──────────────────────────────────────────────────────────────── */
+.alert-danger {
+    background-color: #3f1d1d;
+    border: 1px solid #7f1d1d;
+    border-left: 4px solid var(--red);
+    color: #fecaca;
+    border-radius: 8px;
+}
+
+.alert-success {
+    background-color: #152a1d;
+    border: 1px solid #166534;
+    border-left: 4px solid var(--green);
+    color: #bbf7d0;
+    border-radius: 8px;
+}
+
+/* ── Navbar ───────────────────────────────────────────────────────────────  */
+.navbar {
+    background: linear-gradient(90deg, #1e1b4b 0%, #164e63 60%, #0f766e 100%) !important;
+    box-shadow: 0 2px 12px rgba(2,6,23,0.6);
+    border-bottom: none;
+}
+
+.navbar .navbar-brand {
+    color: #ffffff !important;
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-shadow: 0 1px 4px rgba(0,0,0,0.2);
+}
+
+.navbar .nav-badge {
+    background: rgba(148,163,184,0.2);
+    color: #e2e8f0;
+    border-radius: 6px;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+/* ── Footer ───────────────────────────────────────────────────────────────  */
+footer {
+    color: var(--text-muted) !important;
+    border-color: var(--rule-color) !important;
+    font-size: 0.75rem;
+    background-color: var(--panel-bg);
+    margin-top: 2rem;
+}
+
+/* ── Bootstrap overrides ──────────────────────────────────────────────────  */
+.btn-success {
+    background-color: var(--green);
+    border-color: var(--green);
+    color: #ffffff;
+}
+.btn-success:hover   { background-color: #15803d; border-color: #15803d; color: #fff; }
+
+.btn-outline-secondary {
+    border-color: #64748b;
+    color: var(--text-muted);
+}
+.btn-outline-secondary:hover {
+    background-color: #1e293b;
+    color: #e2e8f0;
+    border-color: var(--indigo);
+}
+
+.btn-outline-warning {
+    border-color: #d97706;
+    color: #fcd34d;
+}
+.btn-outline-warning:hover {
+    background-color: #422006;
+    border-color: var(--amber);
+    color: #fef3c7;
+}
+
+.text-warning  { color: var(--amber)  !important; }
+.text-info     { color: var(--blue)   !important; }
+.text-success  { color: var(--green)  !important; }
+.text-danger   { color: var(--red)    !important; }
+.text-muted    { color: var(--text-muted) !important; }
+
+/* ── Page-level heading strip ────────────────────────────────────────────── */
+.page-title-bar {
+    background: linear-gradient(90deg, #1e293b 0%, #0f172a 100%);
+    border-left: 4px solid var(--indigo);
+    border-radius: 6px;
+    padding: 0.5rem 1rem;
+    margin-bottom: 1.2rem;
+    color: #c7d2fe;
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+/* ── Scrollbar (Webkit) ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #020617; }
+::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #475569; }

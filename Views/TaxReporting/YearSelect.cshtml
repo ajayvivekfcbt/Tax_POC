@@ -1,0 +1,67 @@
+@model YearSelectViewModel
+@{
+    ViewData["Title"] = "Tax Year Selection";
+}
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     Equivalent to TX9500 – prompts the user to enter the processing
+     tax year before the main menu is shown.
+     ═══════════════════════════════════════════════════════════════════ -->
+<div class="terminal-panel">
+
+    <!-- Screen header row (mirrors IBM i row 1 / row 2) -->
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("MM/dd/yy")</span>
+        <span class="fw-bold">Tax Reporting System – Year Selection</span>
+        <span>TX9500</span>
+    </div>
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span></span>
+        <span>@Environment.UserName</span>
+    </div>
+
+    <hr class="terminal-rule" />
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger py-1 font-monospace">@Model.ErrorMessage</div>
+    }
+
+    <form asp-action="YearSelect" method="post">
+        @Html.AntiForgeryToken()
+
+        <div class="row align-items-center my-3">
+            <label class="col-4 col-form-label terminal-label">
+                Select Tax Year:
+            </label>
+            <div class="col-4">
+                <select asp-for="TaxYear"
+                        class="form-select form-select-sm terminal-input text-center"
+                        autofocus>
+                    @if (Model.AvailableTaxYears is null || !Model.AvailableTaxYears.Any())
+                    {
+                        <option value="">No years available</option>
+                    }
+                    else
+                    {
+                        @foreach (var year in Model.AvailableTaxYears)
+                        {
+                            <option value="@year">@year</option>
+                        }
+                    }
+                </select>
+                <span asp-validation-for="TaxYear" class="text-danger small"></span>
+            </div>
+        </div>
+
+        <div class="d-flex gap-3 mt-4">
+            <button type="submit" class="btn btn-success btn-sm font-monospace">
+                Enter
+            </button>
+            <a asp-action="YearSelect" class="btn btn-outline-secondary btn-sm font-monospace">
+                F3 = Exit
+            </a>
+        </div>
+    </form>
+</div>

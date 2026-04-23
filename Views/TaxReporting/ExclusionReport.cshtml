@@ -1,0 +1,84 @@
+@model Tx9501.Models.ViewModels.PagedTaxDetailListViewModel
+@{
+    ViewData["Title"] = $"Exclusion Report - {Model.FormName}";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("MM/dd/yy")</span>
+        <span class="fw-bold fs-6">@Model.ScreenTitle</span>
+        <span>@Model.ProgramName</span>
+    </div>
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span class="text-info">@Model.FormName - @Model.FormDescription</span>
+        <span>WEB</span>
+    </div>
+
+    <div class="terminal-banner d-flex justify-content-between mt-2">
+        <span>
+            <span class="terminal-label">Tax Year:</span>
+            <span class="terminal-value text-warning">@Model.TaxYear</span>
+        </span>
+        <span>
+            <span class="terminal-label">Excluded Rows:</span>
+            <span class="terminal-value text-warning">@Model.FirstRowNumber-@Model.LastRowNumber of @Model.TotalCount</span>
+        </span>
+    </div>
+
+    <div class="table-responsive mt-3">
+        <table class="table table-dark table-sm table-striped font-monospace align-middle">
+            <thead>
+                <tr>
+                    <th>Assoc</th>
+                    <th>Member</th>
+                    <th>Sub</th>
+                    <th>Taxpayer ID</th>
+                    <th>Name</th>
+                    <th>City</th>
+                    <th>State</th>
+                    <th>Report</th>
+                    <th>Error</th>
+                </tr>
+            </thead>
+            <tbody>
+            @foreach (var row in Model.Rows)
+            {
+                <tr>
+                    <td>@row.Asa</td>
+                    <td>@row.MbrNo.ToString("0")</td>
+                    <td>@row.MbrSub</td>
+                    <td>@row.SsiDc @row.SsiDn.ToString("0")</td>
+                    <td>@row.BorrName</td>
+                    <td>@row.BorrCity</td>
+                    <td>@row.BorrState</td>
+                    <td>@row.ReportToIrs</td>
+                    <td>@(string.IsNullOrWhiteSpace(row.Errors) ? "" : row.Errors)</td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.TotalPages > 1)
+    {
+        <div class="terminal-banner d-flex justify-content-between mt-2">
+            <span>Page @Model.PageNumber of @Model.TotalPages</span>
+            <span>
+                @if (Model.HasPreviousPage)
+                {
+                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber - 1)" class="btn-terminal">Prev 50</a>
+                }
+                @if (Model.HasNextPage)
+                {
+                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber + 1)" class="btn-terminal">Next 50</a>
+                }
+            </span>
+        </div>
+    }
+
+    <div class="terminal-footer">
+        <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
+        <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
+    </div>
+</div>

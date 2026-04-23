@@ -1,0 +1,79 @@
+@model Tx9501.Models.ViewModels.ExtractDefineViewModel
+@{
+    ViewData["Title"] = Model.IsReadOnly ? "Display Extract" : "Define Extract";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9560 - @ViewData["Title"]</span>
+        <span class="terminal-right">Year: @Model.TaxYear</span>
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="TaxYear" />
+        <input type="hidden" asp-for="ExtSeq" />
+
+        @if (Model.ExtSeq.HasValue)
+        {
+            <div class="terminal-row">
+                <span class="terminal-label">Sequence</span>
+                <span class="terminal-value">@Model.ExtSeq</span>
+            </div>
+        }
+
+        <div class="terminal-row">
+            <label class="terminal-label">Description</label>
+            @if (Model.IsReadOnly)
+            {
+                <input asp-for="Description" class="terminal-input input-lg" maxlength="40" readonly />
+            }
+            else
+            {
+                <input asp-for="Description" class="terminal-input input-lg" maxlength="40" autofocus />
+            }
+            <span asp-validation-for="Description" class="terminal-error"></span>
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Select Date</label>
+            @if (Model.IsReadOnly)
+            {
+                <input asp-for="SelectDate" class="terminal-input input-sm" type="date" readonly />
+            }
+            else
+            {
+                <input asp-for="SelectDate" class="terminal-input input-sm" type="date" />
+            }
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Transmitter</label>
+            @if (Model.IsReadOnly)
+            {
+                <input asp-for="XmtrName" class="terminal-input input-md" maxlength="40" readonly />
+            }
+            else
+            {
+                <input asp-for="XmtrName" class="terminal-input input-md" maxlength="40" />
+            }
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Transmitter 2</label>
+            @if (Model.IsReadOnly)
+            {
+                <input asp-for="XmtrName2" class="terminal-input input-md" maxlength="40" readonly />
+            }
+            else
+            {
+                <input asp-for="XmtrName2" class="terminal-input input-md" maxlength="40" />
+            }
+        </div>
+
+        <div class="terminal-footer">
+            @if (!Model.IsReadOnly)
+            {
+                <button type="submit" class="btn-terminal">Enter=Save</button>
+            }
+            <button type="submit" name="CancelPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
+        </div>
+    </form>
+</div>

@@ -1,0 +1,47 @@
+@model Tx9501.Models.ViewModels.MaintainSelectViewModel
+@{
+    ViewData["Title"] = "Maintain - Select Record";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9525 - Maintain Tax Records</span>
+        <span class="terminal-right">Year: @Model.TaxYear &nbsp; Form: @Model.FormName</span>
+    </div>
+
+    @if (!string.IsNullOrEmpty(TempData["StatusMessage"] as string))
+    {
+        <div class="terminal-message">@TempData["StatusMessage"]</div>
+    }
+
+    <div class="terminal-instructions">
+        Enter the key fields to look up or add a record.
+    </div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="TaxYear" />
+        <input type="hidden" asp-for="FormName" />
+
+        <div class="terminal-row">
+            <label class="terminal-label">Association</label>
+            <input asp-for="Assoc" class="terminal-input input-sm" maxlength="3" autofocus />
+            <span asp-validation-for="Assoc" class="terminal-error"></span>
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Member No.</label>
+            <input asp-for="MemberNo" class="terminal-input input-sm" type="number" step="1" min="0" />
+            <span asp-validation-for="MemberNo" class="terminal-error"></span>
+        </div>
+        <div class="terminal-row">
+            <label class="terminal-label">Member Sub</label>
+            <input asp-for="MemberSub" class="terminal-input input-sm" maxlength="3" />
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Look Up</button>
+            <a asp-controller="TaxReporting" asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
+            <a asp-controller="TaxReporting" asp-action="Exit"     class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+    </form>
+</div>

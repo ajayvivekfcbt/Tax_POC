@@ -1,0 +1,168 @@
+@model MainMenuViewModel
+@{
+    ViewData["Title"] = "Main Menu";
+}
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     SF01 – Tax Reporting System Main Menu
+     Mirrors TX9501FM record format SF01 and the logic in tx9501cl.clp.
+     ═══════════════════════════════════════════════════════════════════════ -->
+<div class="terminal-panel">
+
+    <!-- ── Row 1 / Row 2 header (IBM i date/time/sysname/user) ─────────── -->
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("MM/dd/yy")</span>
+        <span class="fw-bold fs-6">Tax Reporting System - Main Menu</span>
+        <span>@Model.SystemName &nbsp;&nbsp; TX9501</span>
+    </div>
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span></span>
+        <span>@Model.UserName &nbsp;&nbsp; SF01</span>
+    </div>
+
+    <!-- ── Row 4 – Tax Year / Status banner ─────────────────────────────── -->
+    <div class="terminal-banner d-flex justify-content-between mt-2">
+        <span>
+            <span class="terminal-label">Tax Year:</span>
+            <span class="terminal-value text-warning">@Model.TaxControl.TaxYear</span>
+            &nbsp;
+            <span class="terminal-value">@Model.TaxControl.TaxDescription</span>
+        </span>
+        <span>
+            <span class="terminal-label">Status:</span>
+            <span class="terminal-value text-warning">@Model.TaxControl.TaxStatus</span>
+        </span>
+    </div>
+
+    <hr class="terminal-rule" />
+
+    @if (!string.IsNullOrEmpty(Model.ErrorMessage))
+    {
+        <div class="alert alert-danger py-1 font-monospace small">@Model.ErrorMessage</div>
+    }
+    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    {
+        <div class="alert alert-success py-1 font-monospace small">@Model.StatusMessage</div>
+    }
+
+    <!-- ── Row 6 – Column headings ──────────────────────────────────────── -->
+    <div class="row terminal-colhdr mt-1 mb-1">
+        <div class="col-1"><span class="text-info fw-bold">Opt</span></div>
+        <div class="col-11"><span class="text-info fw-bold">Description</span></div>
+    </div>
+
+    <!-- ── Rows 7-13 – Tax form selection (one radio per form) ──────────── -->
+    <form asp-action="MainMenu" method="post" id="mainMenuForm">
+        @Html.AntiForgeryToken()
+        <input type="hidden" name="selectedForm" id="selectedFormInput" value="" />
+
+        @foreach (var form in Model.TaxForms)
+        {
+            <div class="terminal-row row align-items-center py-0">
+                <div class="col-1">
+                    <!-- Single-char option field – mirrors IBM i B (input capable) field -->
+                    <input type="radio"
+                           class="form-check-input terminal-opt-radio"
+                           name="formRadio"
+                           value="@form.FormName"
+                           id="opt_@form.FormName.Replace("-","_")"
+                           onchange="document.getElementById('selectedFormInput').value=this.value;" />
+                </div>
+                <div class="col-11 font-monospace">
+                    <label for="opt_@form.FormName.Replace("-","_")" class="mb-0 w-100" style="cursor:pointer;">
+                        Work with Form
+                        <span class="text-info">@form.FormName</span>
+                        &nbsp;-&nbsp;
+                        @form.Description
+                    </label>
+                </div>
+            </div>
+        }
+
+        <!-- ── Row 15 – Generate Tax Extract File ───────────────────────── -->
+        <div class="terminal-row row align-items-center py-0 mt-1">
+            <div class="col-1">
+                <input type="radio" class="form-check-input terminal-opt-radio"
+                       name="formRadio" value="__EXTRACT__"
+                       id="opt_extract"
+                       onchange="document.getElementById('selectedFormInput').value='';" />
+            </div>
+            <div class="col-11 font-monospace">
+                <label for="opt_extract" class="mb-0 w-100" style="cursor:pointer;">
+                    Generate Tax Extract File
+                </label>
+            </div>
+        </div>
+
+        <!-- ── Row 17 – Fix Tax Data ────────────────────────────────────── -->
+        <div class="terminal-row row align-items-center py-0">
+            <div class="col-1">
+                <input type="radio" class="form-check-input terminal-opt-radio"
+                       name="formRadio" value="__FIXTAXES__"
+                       id="opt_fixtaxes"
+                       onchange="document.getElementById('selectedFormInput').value='';" />
+            </div>
+            <div class="col-11 font-monospace">
+                <label for="opt_fixtaxes" class="mb-0 w-100" style="cursor:pointer;">
+                    Fix problems with tax reporting data
+                </label>
+            </div>
+        </div>
+
+        <hr class="terminal-rule" />
+
+        <!-- ── Row 24 – Function keys ────────────────────────────────────── -->
+        <div class="d-flex gap-3 mt-2">
+            <button type="submit" id="btnEnter"
+                    class="btn btn-success btn-sm font-monospace"
+                    onclick="return resolveAction();">
+                Enter
+            </button>
+            <!-- F3 = Exit (POST to Exit action to clear session) -->
+            <button type="submit"
+                    class="btn btn-outline-secondary btn-sm font-monospace"
+                    formaction="@Url.Action("Exit", "TaxReporting")"
+                    formmethod="post"
+                    data-hotkey="F3">
+                F3 = Exit
+            </button>
+        </div>
+    </form>
+</div>
+
+@section Scripts {
+<script>
+/**
+ * Determine which special action was selected (Extract / Fix) and
+ * add a hidden field before form submission.
+ */
+function resolveAction() {
+    const selected = document.querySelector('input[name="formRadio"]:checked');
+    if (!selected) return true;   // let the form post with empty selectedForm
+
+    if (selected.value === '__EXTRACT__') {
+        // add extract marker, remove selectedForm
+        addHidden('extract', '1');
+        document.getElementById('selectedFormInput').value = '';
+        return true;
+    }
+    if (selected.value === '__FIXTAXES__') {
+        addHidden('fixTaxes', '1');
+        document.getElementById('selectedFormInput').value = '';
+        return true;
+    }
+    // Normal form selection – selectedFormInput already set by onchange
+    return true;
+}
+
+function addHidden(name, value) {
+    const f = document.getElementById('mainMenuForm');
+    const h = document.createElement('input');
+    h.type  = 'hidden';
+    h.name  = name;
+    h.value = value;
+    f.appendChild(h);
+}
+</script>
+}

@@ -1,0 +1,43 @@
+@model Tx9501.Models.ViewModels.AssocMainMenuViewModel
+@{
+    ViewData["Title"] = "Association Main Menu";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9503 - Tax Reporting - Association Menu</span>
+        <span class="terminal-right">Year: @Model.TaxYear</span>
+    </div>
+
+    @if (!string.IsNullOrEmpty(ViewBag.StatusMessage as string))
+    {
+        <div class="terminal-message">@ViewBag.StatusMessage</div>
+    }
+
+    <div class="terminal-instructions">Select a form and press Enter.</div>
+
+    <form method="post">
+        @Html.AntiForgeryToken()
+        <div class="form-options">
+            @for (int i = 0; i < Model.FormOptions.Length; i++)
+            {
+                var opt = Model.FormOptions[i];
+                <div class="terminal-row">
+                    <label>
+                        <input type="radio" name="SelectedForm" value="@opt.FormCode"
+                               @(Model.SelectedForm == opt.FormCode ? "checked" : "") />
+                        &nbsp;@opt.Description
+                    </label>
+                </div>
+            }
+        </div>
+
+        <input type="hidden" asp-for="SelectedFormDesc" />
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Select</button>
+            <button type="submit" name="BackPressed" value="true" class="btn-terminal btn-exit">F12=Back</button>
+            <button type="submit" name="ExitPressed" value="true" class="btn-terminal btn-exit">F3=Exit</button>
+        </div>
+    </form>
+</div>
