@@ -38,6 +38,9 @@ public class AssociationMenuController : Controller
 
         if (!ModelState.IsValid || string.IsNullOrEmpty(vm.SelectedForm))
         {
+            if (string.IsNullOrEmpty(vm.SelectedForm))
+                ModelState.AddModelError("", "Select a form.");
+
             var ctrl2 = LoadControl()!;
             return View(BuildMainMenuVm(ctrl2));
         }
@@ -71,6 +74,12 @@ public class AssociationMenuController : Controller
         }
         if (vm.BackPressed)
             return RedirectToAction("MainMenu");
+
+        if (string.IsNullOrWhiteSpace(vm.SelectedAction))
+        {
+            TempData["ErrorMessage"] = "Select an action.";
+            return RedirectToAction("FormMenu");
+        }
 
         // Route to TaxReportingController FormMenu POST logic for the same actions
         return RedirectToAction("FormMenu", "TaxReporting");

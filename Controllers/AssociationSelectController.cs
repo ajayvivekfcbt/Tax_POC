@@ -23,7 +23,7 @@ public class AssociationSelectController : Controller
     /// <param name="returnAction">Where to redirect after selection (e.g. "Clear").</param>
     /// <param name="returnController">Controller to redirect to.</param>
     [HttpGet]
-    public async Task<IActionResult> Index(string? returnAction, string? returnController)
+    public async Task<IActionResult> Index(string? returnAction, string? returnController, string? taxYear, string? formName)
     {
         var userId    = User.Identity?.Name ?? "";
         var allAssns  = await _assnSvc.GetAuthorisedAssociationsAsync(userId);
@@ -35,7 +35,9 @@ public class AssociationSelectController : Controller
             SelectedCorps   = selected,
             SelectAll       = selected.Contains("ALL"),
             ReturnAction    = returnAction ?? "Index",
-            ReturnController = returnController ?? "TaxReporting"
+            ReturnController = returnController ?? "TaxReporting",
+            ReturnTaxYear   = (taxYear ?? string.Empty).Trim(),
+            ReturnFormName  = (formName ?? string.Empty).Trim()
         };
         return View(vm);
     }
@@ -43,18 +45,56 @@ public class AssociationSelectController : Controller
     [HttpPost, ValidateAntiForgeryToken]
     public IActionResult Index(AssociationSelectViewModel vm)
     {
+        var targetController = string.IsNullOrWhiteSpace(vm.ReturnController)
+            ? "TaxReporting"
+            : vm.ReturnController.Trim();
+
+        var targetAction = string.IsNullOrWhiteSpace(vm.ReturnAction)
+            ? "FormMenu"
+            : vm.ReturnAction.Trim();
+
+        // Avoid redirecting to a non-existent TaxReporting/Index action.
+        if (targetController.Equals("TaxReporting", StringComparison.OrdinalIgnoreCase)
+            && targetAction.Equals("Index", StringComparison.OrdinalIgnoreCase))
+        {
+            targetAction = "FormMenu";
+        }
+
+        var routeValues = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(vm.ReturnTaxYear))
+            routeValues["taxYear"] = vm.ReturnTaxYear.Trim();
+        if (!string.IsNullOrWhiteSpace(vm.ReturnFormName))
+            routeValues["formName"] = vm.ReturnFormName.Trim();
+
         if (vm.SelectAll)
         {
             HttpContext.Session.SetString("SelectedAssociations", "ALL");
         }
         else
         {
-            var chosen = vm.SelectedCorps ?? new List<string>();
+            var chosen = (vm.SelectedCorps ?? new List<string>())
+                .Select(code => code?.Trim() ?? string.Empty)
+                .Where(code => code.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (chosen.Count == 0)
+            {
+                TempData["ErrorMessage"] = "Please select at least one association or choose ALL.";
+                return RedirectToAction(nameof(Index), new
+                {
+                    returnAction = targetAction,
+                    returnController = targetController,
+                    taxYear = vm.ReturnTaxYear,
+                    formName = vm.ReturnFormName
+                });
+            }
+
             HttpContext.Session.SetString("SelectedAssociations",
                 string.Join(",", chosen));
         }
 
-        return RedirectToAction(vm.ReturnAction, vm.ReturnController);
+        return RedirectToAction(targetAction, targetController, routeValues);
     }
 
     // ── Pre-Clear Warning (tx9506) ─────────────────────────────────────────

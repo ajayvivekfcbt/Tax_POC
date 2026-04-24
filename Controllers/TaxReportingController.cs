@@ -191,7 +191,7 @@ public sealed class TaxReportingController : Controller
         {
             try
             {
-                await _ibmi.ExecuteProgramAsync("TXFIX1");
+                await _ibmi.ExecuteProgramAsync("TXFIX1", "TTSLIBGJN");
                 TempData["StatusMessage"] = "Fix tax data program completed on IBM i.";
             }
             catch (Exception ex)
@@ -276,7 +276,9 @@ public sealed class TaxReportingController : Controller
                     return RedirectToAction("Index", "AssociationSelect", new
                     {
                         returnAction = "ValidateAction",
-                        returnController = "TaxReporting"
+                        returnController = "TaxReporting",
+                        taxYear = control.TaxYear,
+                        formName
                     });
 
                 case "CLEAR":
@@ -338,12 +340,38 @@ public sealed class TaxReportingController : Controller
     // ═══════════════════════════════════════════════════════════════════════
 
     [HttpGet]
-    public async Task<IActionResult> ValidateAction()
+    public async Task<IActionResult> ValidateAction(string? taxYear, string? formName)
     {
         var control = GetSessionControl();
-        var formName = HttpContext.Session.GetString(SessionKeyForm);
+        var resolvedFormName = HttpContext.Session.GetString(SessionKeyForm);
 
-        if (control is null || string.IsNullOrEmpty(formName))
+        if (string.IsNullOrWhiteSpace(resolvedFormName) && !string.IsNullOrWhiteSpace(formName))
+        {
+            resolvedFormName = formName.Trim();
+            HttpContext.Session.SetString(SessionKeyForm, resolvedFormName);
+            if (FormDescriptions.TryGetValue(resolvedFormName, out var desc))
+                HttpContext.Session.SetString(SessionKeyFormDesc, desc);
+        }
+
+        if (control is null && !string.IsNullOrWhiteSpace(taxYear))
+        {
+            try
+            {
+                var controlFromYear = await _ibmi.GetTaxControlAsync(taxYear.Trim());
+                if (controlFromYear is not null)
+                {
+                    control = controlFromYear;
+                    HttpContext.Session.SetString(SessionKeyControl,
+                        JsonSerializer.Serialize(controlFromYear));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to restore tax control context from route tax year {TaxYear}", taxYear);
+            }
+        }
+
+        if (control is null || string.IsNullOrEmpty(resolvedFormName))
             return RedirectToAction(nameof(MainMenu));
 
         var selectedAssociations = GetSelectedAssociationCodes();
@@ -353,21 +381,21 @@ public sealed class TaxReportingController : Controller
         {
             // Run validation on selected associations
             var flaggedCount = await _validateTax.ValidateAsync(
-                control.TaxYear, formName, selectedAssociations, selectAllAssociations);
+                control.TaxYear, resolvedFormName, selectedAssociations, selectAllAssociations);
 
             // Build a user-friendly message showing associations validated
             var assnMsg = selectAllAssociations 
                 ? "all associations" 
                 : $"associations: {string.Join(", ", selectedAssociations)}";
 
-            var completionMsg = $"✓ Validation completed. Tax Year: {control.TaxYear}, Form: {formName}, {assnMsg}. " +
+            var completionMsg = $"✓ Validation completed. Tax Year: {control.TaxYear}, Form: {resolvedFormName}, {assnMsg}. " +
                                 $"Result: {flaggedCount} record(s) flagged in error.";
 
             TempData["StatusMessage"] = completionMsg;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error during validation for form {Form}", formName);
+            _logger.LogError(ex, "Error during validation for form {Form}", resolvedFormName);
             TempData["ErrorMessage"] = $"Validation failed: {ex.Message}";
         }
 

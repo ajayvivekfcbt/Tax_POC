@@ -18,7 +18,12 @@
         Enter the key fields to look up or add a record.
     </div>
 
-    <form method="post">
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="terminal-error"></div>
+    }
+
+    <form asp-controller="Maintain" asp-action="Select" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="TaxYear" />
         <input type="hidden" asp-for="FormName" />
@@ -40,6 +45,7 @@
 
         <div class="terminal-footer">
             <button type="submit" class="btn-terminal">Enter=Look Up</button>
+            <button type="submit" name="AddPressed" value="true" class="btn-terminal">F6=Add</button>
             <a asp-controller="TaxReporting" asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
             <a asp-controller="TaxReporting" asp-action="Exit"     class="btn-terminal btn-exit">F3=Exit</a>
         </div>

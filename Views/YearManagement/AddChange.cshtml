@@ -9,7 +9,20 @@
         <span class="terminal-title">@ViewData["Title"]</span>
     </div>
 
-    <form method="post">
+    @if (TempData["StatusMessage"] is string statusMessage && !string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="terminal-message">@statusMessage</div>
+    }
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="terminal-error">@errorMessage</div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="terminal-error"></div>
+    }
+
+    <form asp-controller="YearManagement" asp-action="@(isAdd ? "Add" : "Change")" method="post">
         @Html.AntiForgeryToken()
         <div class="terminal-row">
             <label class="terminal-label">Tax Year</label>

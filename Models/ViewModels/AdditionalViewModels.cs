@@ -79,6 +79,10 @@ public class AssociationSelectViewModel
     /// <summary>Where to redirect after selection.</summary>
     public string                ReturnAction    { get; set; } = "Index";
     public string                ReturnController { get; set; } = "TaxReporting";
+    /// <summary>Optional Tax Year context carried across redirects.</summary>
+    public string                ReturnTaxYear   { get; set; } = string.Empty;
+    /// <summary>Optional Form context carried across redirects.</summary>
+    public string                ReturnFormName  { get; set; } = string.Empty;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -187,6 +191,8 @@ public class MaintainSelectViewModel
     public decimal MemberNo  { get; set; }
 
     public string? MemberSub { get; set; }
+
+    public bool AddPressed { get; set; }
 }
 
 public class MaintainRecordViewModel
@@ -250,12 +256,13 @@ public class PagedTaxDetailListViewModel
 
 public class ExtractListViewModel
 {
-    public string                      TaxYear      { get; set; } = string.Empty;
-    public IList<ExtractControlRecord> Extracts     { get; set; } = new List<ExtractControlRecord>();
-    public bool                        ExitPressed  { get; set; }
-    public bool                        AddPressed   { get; set; }
+    public string                      TaxYear        { get; set; } = string.Empty;
+    public IList<ExtractControlRecord> Extracts       { get; set; } = new List<ExtractControlRecord>();
+    public bool                        ExitPressed    { get; set; }
+    public bool                        AddPressed     { get; set; }
+    public bool                        ExecutePressed { get; set; }
     public string?                     SelectedOption { get; set; }
-    public decimal?                    SelectedSeq  { get; set; }
+    public decimal?                    SelectedSeq    { get; set; }
 }
 
 public class ExtractDefineViewModel
@@ -287,6 +294,7 @@ public class ExtractSetupViewModel
     public List<string>  SelectedAssocs { get; set; } = new();
     public bool          AllAssociations { get; set; }
     public bool          CancelPressed  { get; set; }
+    public bool          BuildPressed   { get; set; }
 }
 
 public class ExtractFileViewerViewModel

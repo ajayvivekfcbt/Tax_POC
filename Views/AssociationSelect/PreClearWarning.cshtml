@@ -40,7 +40,7 @@
     </table>
     </div>
 
-    <form method="post">
+    <form asp-controller="AssociationSelect" asp-action="PreClearWarning" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="ReturnController" />
         <input type="hidden" asp-for="ReturnAction" />

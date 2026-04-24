@@ -23,11 +23,9 @@
         <span class="key-hint">F6=Add</span>
     </div>
 
-    <form method="post">
+    <form id="extractForm" method="post" asp-action="Index" asp-controller="Extract">
         @Html.AntiForgeryToken()
         <input type="hidden" name="TaxYear" value="@Model.TaxYear" />
-        <input type="hidden" name="SelectedOption" id="selectedOption" />
-        <input type="hidden" name="SelectedSeq" id="selectedSeq" />
 
         <div class="table-responsive-nowrap">
         <table class="terminal-table">
@@ -54,11 +52,14 @@
                 {
                     @foreach (var e in Model.Extracts)
                     {
+                        var seqKey = e.ExtSeq.ToString("0");
                         <tr>
                             <td class="col-opt">
                                 <input type="text" maxlength="1"
+                                       name="opt_@seqKey"
+                                       id="opt_@seqKey"
                                        class="opt-input" style="width:2rem;"
-                                       data-seq="@e.ExtSeq" />
+                                       autocomplete="off" />
                             </td>
                             <td>@e.ExtSeq</td>
                             <td>@e.ExtDesc</td>
@@ -72,8 +73,13 @@
         </table>
         </div>
 
+        @if (!string.IsNullOrEmpty(TempData["ErrorMessage"] as string))
+        {
+            <div class="text-warning font-monospace small mt-1">@TempData["ErrorMessage"]</div>
+        }
+
         <div class="terminal-footer">
-            <button type="submit" class="btn-terminal">Enter=Execute</button>
+            <button type="submit" name="ExecutePressed" value="true" class="btn-terminal">Enter=Execute</button>
             <button type="submit" name="AddPressed" value="true" class="btn-terminal">F6=Add</button>
             <a asp-controller="TaxReporting" asp-action="MainMenu" class="btn-terminal btn-exit">F12=Back</a>
             <a asp-controller="TaxReporting" asp-action="Exit"     class="btn-terminal btn-exit">F3=Exit</a>
@@ -83,39 +89,13 @@
 
 @section Scripts {
 <script>
-    // Resolve exactly one selected option row and post it via hidden fields.
-    var form = document.querySelector('form');
-    var optionHidden = document.getElementById('selectedOption');
-    var seqHidden = document.getElementById('selectedSeq');
-    var optionInputs = Array.from(document.querySelectorAll('.opt-input'));
-
-    optionInputs.forEach(function(inp) {
+    // Optional UX: clear other rows when user types in one.
+    document.querySelectorAll('.opt-input').forEach(function(inp) {
         inp.addEventListener('input', function() {
-            var val = (inp.value || '').trim().toUpperCase();
-            if (!val) return;
-
-            optionInputs.forEach(function(other) {
-                if (other !== inp) other.value = '';
+            document.querySelectorAll('.opt-input').forEach(function(o) {
+                if (o !== inp) o.value = '';
             });
-
-            optionHidden.value = val;
-            seqHidden.value = inp.getAttribute('data-seq') || '';
         });
-    });
-
-    form.addEventListener('submit', function() {
-        var chosen = optionInputs.find(function(inp) {
-            return (inp.value || '').trim().length > 0;
-        });
-
-        if (!chosen) {
-            optionHidden.value = '';
-            seqHidden.value = '';
-            return;
-        }
-
-        optionHidden.value = (chosen.value || '').trim().toUpperCase();
-        seqHidden.value = chosen.getAttribute('data-seq') || '';
     });
 </script>
 }

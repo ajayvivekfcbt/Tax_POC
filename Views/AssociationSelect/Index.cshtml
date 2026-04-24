@@ -13,10 +13,19 @@
         Select one or more associations, or check <strong>ALL</strong>.
     </div>
 
-    <form method="post">
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="alert alert-danger py-2 px-3 font-monospace" style="margin-top:.5rem;">
+            @errorMessage
+        </div>
+    }
+
+    <form asp-action="Index" asp-controller="AssociationSelect" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" name="ReturnAction" value="@Model.ReturnAction" />
         <input type="hidden" name="ReturnController" value="@Model.ReturnController" />
+        <input type="hidden" name="ReturnTaxYear" value="@Model.ReturnTaxYear" />
+        <input type="hidden" name="ReturnFormName" value="@Model.ReturnFormName" />
 
         <div class="terminal-row" style="margin-bottom:.75rem;">
             <label>

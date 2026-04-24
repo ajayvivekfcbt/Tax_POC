@@ -57,7 +57,12 @@ public class MaintainController : Controller
 
         if (record is null)
         {
-            // New record
+            if (!vm.AddPressed)
+            {
+                ModelState.AddModelError(nameof(vm.MemberNo), "Account not found.");
+                return View(vm);
+            }
+
             TempData["MaintainMode"] = "ADD";
             TempData["MaintainKey"]  = $"{vm.Assoc}|{vm.MemberNo}|{vm.MemberSub}";
             return RedirectToAction("Record", new
@@ -67,6 +72,12 @@ public class MaintainController : Controller
                 mbrSub = vm.MemberSub,
                 mode   = "ADD"
             });
+        }
+
+        if (vm.AddPressed)
+        {
+            ModelState.AddModelError(nameof(vm.MemberNo), "Account already exists - add not allowed.");
+            return View(vm);
         }
 
         TempData["MaintainMode"] = "CHANGE";

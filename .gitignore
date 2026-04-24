@@ -1,0 +1,35 @@
+# User-requested rule
+.git/
+
+# Build output
+**/bin/
+**/obj/
+
+# Logs
+*.log
+
+# Local data and temp files
+*.db
+*.tmp
+*.tmp_ignore
+
+# App settings
+appsettings.json
+appsettings.*.json
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+
+# IDE folders
+.vs/
+.vscode/
+
+# NuGet
+*.nupkg
+**/packages/
+
+# OS files
+.DS_Store
+Thumbs.db

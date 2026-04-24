@@ -23,7 +23,7 @@
         <span class="terminal-right">Year: @r.TaxYear</span>
     </div>
 
-    <form method="post">
+    <form asp-controller="Maintain" asp-action="Record" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="Mode" />
         <input type="hidden" asp-for="FormName" />

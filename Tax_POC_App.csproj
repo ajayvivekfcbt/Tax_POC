@@ -17,6 +17,7 @@
     -->
     <PackageReference Include="System.Data.Odbc" Version="10.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="9.0.4" />
+    <PackageReference Include="QuestPDF" Version="2024.10.3" />
     <!--
       Microsoft.AspNetCore.Session and Microsoft.Extensions.Caching.Memory
       are included in the ASP.NET Core shared framework for .NET 6+;

@@ -13,10 +13,18 @@
     {
         <div class="terminal-message">@ViewBag.StatusMessage</div>
     }
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="terminal-error">@errorMessage</div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="terminal-error"></div>
+    }
 
     <div class="terminal-instructions">Select an action and press Enter.</div>
 
-    <form method="post">
+    <form asp-controller="AuditMenu" asp-action="FormMenu" method="post">
         @Html.AntiForgeryToken()
         <div class="form-options">
             @foreach (var act in Model.Actions)

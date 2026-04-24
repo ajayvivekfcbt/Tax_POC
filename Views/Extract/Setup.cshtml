@@ -9,7 +9,20 @@
         <span class="terminal-right">Year: @Model.TaxYear &nbsp; Seq: @Model.ExtSeq</span>
     </div>
 
-    <form method="post">
+    @if (TempData["StatusMessage"] is string statusMessage && !string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="terminal-message">@statusMessage</div>
+    }
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="terminal-error">@errorMessage</div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="terminal-error"></div>
+    }
+
+    <form method="post" asp-action="Setup" asp-controller="Extract">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="TaxYear" />
         <input type="hidden" asp-for="ExtSeq" />
@@ -51,7 +64,7 @@
         </div>
 
         <div class="terminal-footer">
-            <button type="submit" class="btn-terminal">Enter=Build IRS File</button>
+            <button type="submit" name="BuildPressed" value="true" class="btn-terminal">Enter=Build IRS File</button>
             <button type="submit" name="CancelPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
         </div>
     </form>

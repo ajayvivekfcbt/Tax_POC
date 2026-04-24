@@ -109,6 +109,12 @@ public class AuditMenuController : Controller
         if (vm.BackPressed)
             return RedirectToAction("MainMenu");
 
+        if (string.IsNullOrWhiteSpace(vm.SelectedAction))
+        {
+            TempData["ErrorMessage"] = "Select an action.";
+            return RedirectToAction("FormMenu");
+        }
+
         // Audit mode only shows Print and Summary
         switch (vm.SelectedAction)
         {
@@ -117,6 +123,9 @@ public class AuditMenuController : Controller
                 break;
             case "S":  // Display summary
                 return RedirectToAction("Index", "Summary");
+            default:
+                TempData["ErrorMessage"] = $"Action '{vm.SelectedAction}' is not supported from this menu.";
+                break;
         }
         return RedirectToAction("FormMenu");
     }

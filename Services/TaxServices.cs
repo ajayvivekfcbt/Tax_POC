@@ -370,21 +370,34 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
             .Select(r => NormalizeRecordForLocal(r))
             .ToList();
 
-        // Build a composite key to identify records
-        var recordKeys = normalizedRecords
-            .Select(r => new { r.TaxYear, r.Form, r.Asa, r.MbrNo, r.MbrSub })
+        // Build in-memory composite keys and use EF-translatable pre-filters.
+        var recordKeySet = normalizedRecords
+            .Select(r => (r.TaxYear, r.Form, r.Asa, r.MbrNo, r.MbrSub))
+            .ToHashSet();
+
+        var taxYears = normalizedRecords
+            .Select(r => r.TaxYear)
+            .Distinct()
+            .ToList();
+        var forms = normalizedRecords
+            .Select(r => r.Form)
+            .Distinct()
+            .ToList();
+        var asns = normalizedRecords
+            .Select(r => r.Asa)
             .Distinct()
             .ToList();
 
-        // Batch-load all potentially existing records with a single query
-        var existingRecords = await _db.TaxDetails
-            .Where(d => recordKeys.Any(k =>
-                k.TaxYear == d.TaxYear &&
-                k.Form == d.Form &&
-                k.Asa == d.Asa &&
-                k.MbrNo == d.MbrNo &&
-                k.MbrSub == d.MbrSub))
+        var existingCandidates = await _db.TaxDetails
+            .Where(d =>
+                taxYears.Contains(d.TaxYear) &&
+                forms.Contains(d.Form) &&
+                asns.Contains(d.Asa))
             .ToListAsync();
+
+        var existingRecords = existingCandidates
+            .Where(d => recordKeySet.Contains((d.TaxYear, d.Form, d.Asa, d.MbrNo, d.MbrSub)))
+            .ToList();
 
         // Create a lookup for existing records
         var existingMap = existingRecords
@@ -903,17 +916,24 @@ public sealed class MaintainService : IMaintainService
             return null;
         }
 
-        var formPadded  = formName.Trim().PadRight(9);
-        var asaPadded   = asa.Trim().PadRight(3);
-        var mbrNoLong   = (long)mbrNo;
+        var formPadded   = formName.Trim().PadRight(9);
+        var asaPadded    = asa.Trim().PadRight(3);
+        var mbrNoLong    = (long)mbrNo;
+        var mbrSubPadded = keyMbrSub.PadRight(3);
 
         var sql = $@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                             SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
                             WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                             SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                      FROM {_lib}/TXRDTL
-                     WHERE TAXYR=? AND FORM=? AND ASA=? AND MBRNO=?
-                     FETCH FIRST 1 ROW ONLY";
+                     WHERE TAXYR=? AND FORM=? AND ASA=? AND MBRNO=?";
+
+        if (!string.IsNullOrEmpty(keyMbrSub))
+        {
+            sql += " AND MBRSUB=?";
+        }
+
+        sql += " FETCH FIRST 1 ROW ONLY";
 
         try
         {
@@ -925,6 +945,11 @@ public sealed class MaintainService : IMaintainService
             cmd.Parameters.AddWithValue("?", formPadded);  // FORM  9A
             cmd.Parameters.AddWithValue("?", asaPadded);   // ASA   3A
             cmd.Parameters.AddWithValue("?", mbrNoLong);   // MBRNO 11S 0
+
+            if (!string.IsNullOrEmpty(keyMbrSub))
+            {
+                cmd.Parameters.AddWithValue("?", mbrSubPadded); // MBRSUB 3A
+            }
 
             await using var rdr = await cmd.ExecuteReaderAsync();
             if (await rdr.ReadAsync())
@@ -1047,21 +1072,25 @@ public sealed class MaintainService : IMaintainService
         var localSourceCount = await localBaseQuery.CountAsync();
         if (localSourceCount > 0)
         {
-            var filteredLocalQuery = localBaseQuery
+            var filteredLocalRows = await localBaseQuery
                 .Where(d => d.Errors == "Y")
+                .Select(d => d.ToRecord())
+                .ToListAsync();
+
+            var orderedLocalRows = filteredLocalRows
                 .OrderBy(d => d.MbrNo)
-                .ThenBy(d => d.MbrSub);
+                .ThenBy(d => d.MbrSub)
+                .ToList();
 
             return new PagedResult<TaxDetailRecord>
             {
-                Items = await filteredLocalQuery
+                Items = orderedLocalRows
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(d => d.ToRecord())
-                    .ToListAsync(),
+                    .ToList(),
                 PageNumber = pageNumber,
                 PageSize = pageSize,
-                TotalCount = await filteredLocalQuery.CountAsync()
+                TotalCount = orderedLocalRows.Count
             };
         }
 
@@ -1523,21 +1552,25 @@ public sealed class ReportService : IReportService
 
         if (localSourceCount > 0)
         {
-            var filteredLocalQuery = ApplyReportMode(localBaseQuery, mode)
+            var filteredLocalRows = await ApplyReportMode(localBaseQuery, mode)
+                .Select(d => d.ToRecord())
+                .ToListAsync();
+
+            var orderedLocalRows = filteredLocalRows
                 .OrderBy(d => d.Asa)
                 .ThenBy(d => d.MbrNo)
-                .ThenBy(d => d.MbrSub);
+                .ThenBy(d => d.MbrSub)
+                .ToList();
 
             return new PagedResult<TaxDetailRecord>
             {
-                Items = await filteredLocalQuery
+                Items = orderedLocalRows
                     .Skip((pageNumber - 1) * pageSize)
                     .Take(pageSize)
-                    .Select(d => d.ToRecord())
-                    .ToListAsync(),
+                    .ToList(),
                 PageNumber = pageNumber,
                 PageSize = pageSize,
-                TotalCount = await filteredLocalQuery.CountAsync()
+                TotalCount = orderedLocalRows.Count
             };
         }
 
@@ -1828,6 +1861,21 @@ public sealed class ExtractService : IExtractService
         _logger = logger;
     }
 
+    /// <summary>
+    /// IBM i DATE/TIMESTAMP columns come back as System.DateTime via the ODBC driver.
+    /// This helper converts either a DateTime or a string value to yyyyMMdd safely.
+    /// </summary>
+    private static string ReadDateColumn(System.Data.Common.DbDataReader rdr, int ordinal)
+    {
+        var raw = rdr.GetValue(ordinal);
+        return raw switch
+        {
+            DateTime dt => dt.ToString("yyyyMMdd"),
+            string s    => s.Trim(),
+            _           => raw?.ToString()?.Trim() ?? ""
+        };
+    }
+
     public async Task<IList<ExtractControlRecord>> ListExtractsAsync(string taxYear)
     {
         var rows = new List<ExtractControlRecord>();
@@ -1846,8 +1894,8 @@ public sealed class ExtractService : IExtractService
                     TaxYear    = rdr.GetString(0).Trim(),
                     ExtSeq     = rdr.GetDecimal(1),
                     ExtDesc    = rdr.GetString(2).Trim(),
-                    ExtDate    = rdr.IsDBNull(3) ? "" : rdr.GetString(3),
-                    ExtSelDat  = rdr.IsDBNull(4) ? "" : rdr.GetString(4),
+                    ExtDate    = rdr.IsDBNull(3) ? "" : ReadDateColumn(rdr, 3),
+                    ExtSelDat  = rdr.IsDBNull(4) ? "" : ReadDateColumn(rdr, 4),
                     XmtrName   = rdr.GetString(5).Trim(),
                     XmtrName2  = rdr.GetString(6).Trim()
                 });

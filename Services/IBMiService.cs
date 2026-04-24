@@ -96,7 +96,10 @@ public sealed class IBMiService : IIBMiService
     /// Example for TX9505:
     ///   CALL TXLIB.TX9505(?, ?, ?, ?, ?, ?, ?)
     /// </remarks>
-    public async Task ExecuteProgramAsync(string programName, params string[] parameters)
+    public async Task ExecuteProgramAsync(
+        string programName,
+        string? libraryOverride = null,
+        params string[] parameters)
     {
         if (string.IsNullOrWhiteSpace(programName))
             throw new ArgumentNullException(nameof(programName));
@@ -110,8 +113,19 @@ public sealed class IBMiService : IIBMiService
                 $"Invalid IBM i program name: '{programName}'.", nameof(programName));
         }
 
+        var targetLibrary = string.IsNullOrWhiteSpace(libraryOverride)
+            ? _library
+            : libraryOverride.Trim();
+
+        if (!System.Text.RegularExpressions.Regex.IsMatch(
+            targetLibrary, @"^[A-Za-z0-9_]{1,10}$"))
+        {
+            throw new ArgumentException(
+            $"Invalid IBM i library name: '{targetLibrary}'.", nameof(libraryOverride));
+        }
+
         var placeholders = string.Join(", ", parameters.Select(_ => "?"));
-        var sql = $"CALL {_library}/{programName}({placeholders})";
+        var sql = $"CALL {targetLibrary}/{programName}({placeholders})";
 
         try
         {
@@ -129,7 +143,7 @@ public sealed class IBMiService : IIBMiService
             }
 
             _logger.LogInformation("Calling IBM i program: {Library}/{Program}",
-                _library, programName);
+                targetLibrary, programName);
 
             await cmd.ExecuteNonQueryAsync();
         }
@@ -140,13 +154,13 @@ public sealed class IBMiService : IIBMiService
             {
                 _logger.LogWarning(ex,
                     "IBM i program object not found: {Library}/{Program}. Caller may apply web fallback.",
-                    _library, programName);
+                    targetLibrary, programName);
             }
             else
             {
                 _logger.LogError(ex,
                     "ODBC error calling IBM i program {Library}/{Program}.",
-                    _library, programName);
+                    targetLibrary, programName);
             }
             throw;
         }

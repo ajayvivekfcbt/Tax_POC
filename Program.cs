@@ -14,7 +14,7 @@ builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.Warning);
 
 // Bind only to localhost for local development.
-builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5000");
+builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5001");
 
 // Add MVC with views
 builder.Services.AddControllersWithViews();

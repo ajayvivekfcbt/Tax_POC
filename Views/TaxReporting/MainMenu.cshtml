@@ -95,21 +95,6 @@
             </div>
         </div>
 
-        <!-- ── Row 17 – Fix Tax Data ────────────────────────────────────── -->
-        <div class="terminal-row row align-items-center py-0">
-            <div class="col-1">
-                <input type="radio" class="form-check-input terminal-opt-radio"
-                       name="formRadio" value="__FIXTAXES__"
-                       id="opt_fixtaxes"
-                       onchange="document.getElementById('selectedFormInput').value='';" />
-            </div>
-            <div class="col-11 font-monospace">
-                <label for="opt_fixtaxes" class="mb-0 w-100" style="cursor:pointer;">
-                    Fix problems with tax reporting data
-                </label>
-            </div>
-        </div>
-
         <hr class="terminal-rule" />
 
         <!-- ── Row 24 – Function keys ────────────────────────────────────── -->
@@ -144,11 +129,6 @@ function resolveAction() {
     if (selected.value === '__EXTRACT__') {
         // add extract marker, remove selectedForm
         addHidden('extract', '1');
-        document.getElementById('selectedFormInput').value = '';
-        return true;
-    }
-    if (selected.value === '__FIXTAXES__') {
-        addHidden('fixTaxes', '1');
         document.getElementById('selectedFormInput').value = '';
         return true;
     }

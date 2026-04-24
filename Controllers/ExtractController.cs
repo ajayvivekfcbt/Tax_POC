@@ -13,10 +13,12 @@ namespace Tx9501.Controllers;
 public class ExtractController : Controller
 {
     private readonly IExtractService _extractSvc;
+    private readonly ILogger<ExtractController> _logger;
 
-    public ExtractController(IExtractService extractSvc)
+    public ExtractController(IExtractService extractSvc, ILogger<ExtractController> logger)
     {
         _extractSvc = extractSvc;
+        _logger = logger;
     }
 
     // ── Index — extract list subfile (TX9560 SFLEXTC) ─────────────────────
@@ -40,55 +42,96 @@ public class ExtractController : Controller
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Index(ExtractListViewModel vm)
     {
+        // Log EVERYTHING posted
+        var formDump = string.Join(", ", Request.Form.Keys.Select(k => $"{k}={Request.Form[k]}"));
+        _logger.LogWarning("Extract POST dump: {FormData}", formDump);
+        _logger.LogWarning("VM state: TaxYear={TaxYear} ExecutePressed={Execute} AddPressed={Add} ExitPressed={Exit}",
+            vm.TaxYear, vm.ExecutePressed, vm.AddPressed, vm.ExitPressed);
+
         if (vm.ExitPressed)
         {
+            _logger.LogInformation("ExitPressed detected");
             HttpContext.Session.Clear();
             return RedirectToAction("YearSelect", "TaxReporting");
         }
 
         if (vm.AddPressed)
-            return RedirectToAction("Define", new { year = vm.TaxYear });
-
-        if (!string.IsNullOrEmpty(vm.SelectedOption) && vm.SelectedSeq.HasValue)
         {
-            switch (vm.SelectedOption)
-            {
-                case "1":  // Select / Build
-                    return RedirectToAction("Setup", new { year = vm.TaxYear, seq = vm.SelectedSeq.Value });
+            _logger.LogInformation("AddPressed detected");
+            return RedirectToAction("Define", new { year = vm.TaxYear });
+        }
 
-                case "4":  // Clear
-                    await _extractSvc.ClearExtractAsync(vm.TaxYear, vm.SelectedSeq.Value);
-                    TempData["StatusMessage"] = $"Extract {vm.SelectedSeq} cleared.";
+        if (vm.ExecutePressed)
+        {
+            _logger.LogInformation("ExecutePressed detected, scanning for opt_ fields");
+            // Scan the posted form for an opt_SEQ field that has a value.
+            string? option = null;
+            decimal? seq   = null;
+
+            foreach (var key in Request.Form.Keys)
+            {
+                if (!key.StartsWith("opt_", StringComparison.OrdinalIgnoreCase)) continue;
+                var raw = Request.Form[key].ToString().Trim().ToUpper();
+                _logger.LogInformation("Found opt field: {Key}={Value}", key, raw);
+                if (string.IsNullOrEmpty(raw)) continue;
+                var seqStr = key.Substring(4);
+                if (!decimal.TryParse(seqStr, out var parsedSeq)) 
+                {
+                    _logger.LogWarning("Failed to parse seq from {Key}", key);
+                    continue;
+                }
+                option = raw;
+                seq    = parsedSeq;
+                _logger.LogInformation("Selected: Option={Option} Seq={Seq}", option, seq);
+                break;
+            }
+
+            if (option is null || seq is null)
+            {
+                _logger.LogWarning("No valid option selected");
+                TempData["ErrorMessage"] = "Type an option (1, 4, 5, 9, X) next to a row and press Enter=Execute.";
+                return RedirectToAction("Index");
+            }
+
+            _logger.LogInformation("Executing option {Option} for seq {Seq}", option, seq);
+            switch (option)
+            {
+                case "1":
+                    return RedirectToAction("Setup", new { year = vm.TaxYear, seq = seq.Value });
+
+                case "4":
+                    await _extractSvc.ClearExtractAsync(vm.TaxYear, seq.Value);
+                    TempData["StatusMessage"] = $"Extract {seq} cleared.";
                     break;
 
-                case "5":  // Transmit
-                    await _extractSvc.TransmitExtractAsync(vm.TaxYear, vm.SelectedSeq.Value);
+                case "5":
+                    await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
                     TempData["StatusMessage"] =
-                        $"Extract {vm.SelectedSeq} transmit completed. " +
+                        $"Extract {seq} transmit completed. " +
                         "If TX9565R is unavailable on IBM i, web fallback was used.";
                     break;
 
-                case "9":  // Display detail
-                    return RedirectToAction("FileViewer", new
-                    {
-                        year = vm.TaxYear,
-                        seq  = vm.SelectedSeq.Value
-                    });
+                case "9":
+                    return RedirectToAction("FileViewer", new { year = vm.TaxYear, seq = seq.Value });
 
-                case "X":  // Download IRS file
-                    var dl = await _extractSvc.DownloadExtractAsync(vm.TaxYear, vm.SelectedSeq.Value);
+                case "X":
+                    var dl = await _extractSvc.DownloadExtractAsync(vm.TaxYear, seq.Value);
                     if (dl is null)
                     {
                         TempData["StatusMessage"] =
-                            $"No generated IRS file found for extract {vm.SelectedSeq}. " +
-                            "Run option 1 (Build) first.";
+                            $"No generated IRS file found for extract {seq}. Run option 1 (Build) first.";
                         break;
                     }
-
                     return File(dl.Value.Content, "text/plain", dl.Value.FileName);
+
+                default:
+                    TempData["ErrorMessage"] = $"Option '{option}' is not valid. Use 1, 4, 5, 9, or X.";
+                    break;
             }
         }
 
+        _logger.LogWarning("No button detected or no action matched - falling through to Index. Buttons: Execute={Execute} Add={Add} Exit={Exit}",
+            vm.ExecutePressed, vm.AddPressed, vm.ExitPressed);
         return RedirectToAction("Index");
     }
 

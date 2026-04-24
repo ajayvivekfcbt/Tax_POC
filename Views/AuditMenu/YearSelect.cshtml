@@ -9,9 +9,18 @@
         <span class="terminal-right">@DateTime.Now.ToString("MM/dd/yyyy")</span>
     </div>
 
+    @if (TempData["StatusMessage"] is string statusMessage && !string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="terminal-message">@statusMessage</div>
+    }
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="terminal-error">@errorMessage</div>
+    }
+
     <div class="terminal-instructions">Type 1 to select a year for audit, press Enter.</div>
 
-    <form method="post">
+    <form asp-controller="AuditMenu" asp-action="YearSelect" method="post">
         @Html.AntiForgeryToken()
         <div class="table-responsive-nowrap">
         <table class="terminal-table">

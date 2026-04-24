@@ -20,5 +20,8 @@ public interface IIBMiService
     /// Call an IBM i program (e.g. TX9505, TX9510, TX9515 …) with positional
     /// character parameters, mirroring the CALL statements in tx9501cl.clp.
     /// </summary>
-    Task ExecuteProgramAsync(string programName, params string[] parameters);
+    Task ExecuteProgramAsync(
+        string programName,
+        string? libraryOverride = null,
+        params string[] parameters);
 }
