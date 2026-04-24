@@ -132,6 +132,9 @@ public interface IReportService
     /// <summary>Return a paged report list, using staged SQLite rows first and IBM i only when staged rows do not exist.</summary>
     Task<PagedResult<TaxDetailRecord>> GetDetailReportPageAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, int pageNumber, int pageSize, TaxDetailListMode mode);
 
+    /// <summary>Return the distinct association codes present in the full (unpaged) result set for the given mode.</summary>
+    Task<IList<string>> GetDistinctAssociationsAsync(string taxYear, string formName, IList<string> associations, bool selectAll, TaxDetailListMode mode);
+
     /// <summary>Submit the exclusion report job (calls TX9531).</summary>
     Task PrintExclusionReportAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
 

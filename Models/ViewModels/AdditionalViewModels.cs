@@ -21,6 +21,18 @@ public class FormAction
     public string Description { get; set; } = string.Empty;
 }
 
+public class LoginViewModel
+{
+    [Required(ErrorMessage = "Username is required.")]
+    public string Username { get; set; } = string.Empty;
+
+    [Required(ErrorMessage = "Password is required.")]
+    [DataType(DataType.Password)]
+    public string Password { get; set; } = string.Empty;
+
+    public string ReturnUrl { get; set; } = string.Empty;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TX9500 / TX9512 – Year select (subfile list of tax years)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +251,8 @@ public class PagedTaxDetailListViewModel
     public string ScreenTitle { get; set; } = string.Empty;
     public string ProgramName { get; set; } = string.Empty;
     public string BackAction { get; set; } = string.Empty;
+    public string SelectedAssociationFilter { get; set; } = string.Empty;
+    public IList<string> AvailableAssociationFilters { get; set; } = new List<string>();
     public IList<TaxDetailRecord> Rows { get; set; } = new List<TaxDetailRecord>();
     public int PageNumber { get; set; } = 1;
     public int PageSize { get; set; } = 50;

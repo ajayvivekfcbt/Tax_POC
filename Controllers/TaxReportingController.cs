@@ -1,4 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
+using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Tx9501.Models;
 using Tx9501.Models.ViewModels;
@@ -403,7 +405,7 @@ public sealed class TaxReportingController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> DetailReport(int page = 1)
+    public async Task<IActionResult> DetailReport(int page = 1, string? assoc = null)
     {
         var control = GetSessionControl();
         var formName = HttpContext.Session.GetString(SessionKeyForm);
@@ -413,11 +415,23 @@ public sealed class TaxReportingController : Controller
 
         try
         {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+            if (string.IsNullOrEmpty(selectedAssociationFilter))
+                selectedAssociationFilter = "S01";
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
             var paged = await _reportService.GetDetailReportPageAsync(
                 control.TaxYear,
                 formName,
-                GetSelectedAssociationCodes(),
-                AreAllAssociationsSelected(),
+                selectedAssociations,
+                selectAllAssociations,
                 page,
                 ReportPageSize,
                 TaxDetailListMode.Detail);
@@ -427,7 +441,9 @@ public sealed class TaxReportingController : Controller
                 formName,
                 "Tax Reporting System - Detail Report",
                 "TX9530",
-                paged));
+                paged,
+                selectedAssociationFilter,
+                Array.Empty<string>()));
         }
         catch (Exception ex)
         {
@@ -438,7 +454,46 @@ public sealed class TaxReportingController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> ErrorReport(int page = 1)
+    public async Task<IActionResult> DownloadDetailReport(string? assoc = null)
+    {
+        return await DownloadReportCsvAsync(TaxDetailListMode.Detail, "DetailReport", assoc);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetAssociationOptions(string mode, string? currentAssoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return Json(Array.Empty<string>());
+
+        var reportMode = mode switch
+        {
+            "Error" => TaxDetailListMode.Error,
+            "Exclusion" => TaxDetailListMode.Exclusion,
+            _ => TaxDetailListMode.Detail
+        };
+
+        var sessionAssociations = GetSelectedAssociationCodes();
+        var sessionSelectAll = AreAllAssociationsSelected();
+
+        try
+        {
+            var allAssociations = await _reportService.GetDistinctAssociationsAsync(
+                control.TaxYear, formName, sessionAssociations, sessionSelectAll, reportMode);
+            var options = BuildAvailableAssociationFilters(allAssociations, NormalizeAssociationCode(currentAssoc));
+            return Json(options);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching association options for mode {Mode}", mode);
+            return Json(Array.Empty<string>());
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> ErrorReport(int page = 1, string? assoc = null)
     {
         var control = GetSessionControl();
         var formName = HttpContext.Session.GetString(SessionKeyForm);
@@ -448,11 +503,23 @@ public sealed class TaxReportingController : Controller
 
         try
         {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+            if (string.IsNullOrEmpty(selectedAssociationFilter))
+                selectedAssociationFilter = "S01";
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
             var paged = await _reportService.GetDetailReportPageAsync(
                 control.TaxYear,
                 formName,
-                GetSelectedAssociationCodes(),
-                AreAllAssociationsSelected(),
+                selectedAssociations,
+                selectAllAssociations,
                 page,
                 ReportPageSize,
                 TaxDetailListMode.Error);
@@ -462,7 +529,9 @@ public sealed class TaxReportingController : Controller
                 formName,
                 "Tax Reporting System - Error Report",
                 "TX9532",
-                paged));
+                paged,
+                selectedAssociationFilter,
+                Array.Empty<string>()));
         }
         catch (Exception ex)
         {
@@ -473,7 +542,13 @@ public sealed class TaxReportingController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> ExclusionReport(int page = 1)
+    public async Task<IActionResult> DownloadErrorReport(string? assoc = null)
+    {
+        return await DownloadReportCsvAsync(TaxDetailListMode.Error, "ErrorReport", assoc);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> ExclusionReport(int page = 1, string? assoc = null)
     {
         var control = GetSessionControl();
         var formName = HttpContext.Session.GetString(SessionKeyForm);
@@ -483,11 +558,23 @@ public sealed class TaxReportingController : Controller
 
         try
         {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+            if (string.IsNullOrEmpty(selectedAssociationFilter))
+                selectedAssociationFilter = "S01";
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
             var paged = await _reportService.GetDetailReportPageAsync(
                 control.TaxYear,
                 formName,
-                GetSelectedAssociationCodes(),
-                AreAllAssociationsSelected(),
+                selectedAssociations,
+                selectAllAssociations,
                 page,
                 ReportPageSize,
                 TaxDetailListMode.Exclusion);
@@ -497,7 +584,9 @@ public sealed class TaxReportingController : Controller
                 formName,
                 "Tax Reporting System - Exclusion Report",
                 "TX9531",
-                paged));
+                paged,
+                selectedAssociationFilter,
+                Array.Empty<string>()));
         }
         catch (Exception ex)
         {
@@ -505,6 +594,12 @@ public sealed class TaxReportingController : Controller
             TempData["ErrorMessage"] = $"Unable to build exclusion report: {ex.Message}";
             return RedirectToAction(nameof(FormMenu));
         }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadExclusionReport(string? assoc = null)
+    {
+        return await DownloadReportCsvAsync(TaxDetailListMode.Exclusion, "ExclusionReport", assoc);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -618,7 +713,9 @@ public sealed class TaxReportingController : Controller
         string formName,
         string screenTitle,
         string programName,
-        PagedResult<Tx9501.Models.Entities.TaxDetailRecord> paged)
+        PagedResult<Tx9501.Models.Entities.TaxDetailRecord> paged,
+        string selectedAssociationFilter = "",
+        IList<string>? availableAssociationFilters = null)
     {
         return new PagedTaxDetailListViewModel
         {
@@ -629,10 +726,178 @@ public sealed class TaxReportingController : Controller
             ScreenTitle = screenTitle,
             ProgramName = programName,
             BackAction = nameof(FormMenu),
+            SelectedAssociationFilter = selectedAssociationFilter,
+            AvailableAssociationFilters = availableAssociationFilters ?? new List<string>(),
             Rows = paged.Items,
             PageNumber = paged.PageNumber,
             PageSize = paged.PageSize,
             TotalCount = paged.TotalCount
         };
+    }
+
+    private static string NormalizeAssociationCode(string? associationCode)
+    {
+        if (string.IsNullOrWhiteSpace(associationCode))
+        {
+            return string.Empty;
+        }
+
+        var normalized = associationCode.Trim().ToUpperInvariant();
+        return normalized.Length > 3 ? normalized[..3] : normalized;
+    }
+
+    private static IList<string> BuildAvailableAssociationFilters(
+        IEnumerable<string> allAssociations,
+        string selectedAssociationFilter)
+    {
+        var normalizedOptions = allAssociations
+            .Select(code => NormalizeAssociationCode(code))
+            .Where(code => code.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(code => code)
+            .ToList();
+
+        if (!string.IsNullOrEmpty(selectedAssociationFilter)
+            && !normalizedOptions.Contains(selectedAssociationFilter, StringComparer.OrdinalIgnoreCase))
+        {
+            normalizedOptions.Add(selectedAssociationFilter);
+            normalizedOptions = normalizedOptions
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(code => code)
+                .ToList();
+        }
+
+        return normalizedOptions;
+    }
+
+    private async Task<IActionResult> DownloadReportCsvAsync(
+        TaxDetailListMode mode,
+        string fallbackAction,
+        string? assoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
+            var rows = await GetAllReportRowsAsync(
+                control.TaxYear,
+                formName,
+                selectedAssociations,
+                selectAllAssociations,
+                mode);
+
+            var csvBytes = BuildReportCsv(rows);
+            var modeName = mode.ToString().ToLowerInvariant();
+            var fileName = $"{formName.Trim()}_{modeName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            return File(csvBytes, "text/csv", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting {Mode} report for form {Form}", mode, formName);
+            TempData["ErrorMessage"] = $"Unable to export report: {ex.Message}";
+            return RedirectToAction(fallbackAction);
+        }
+    }
+
+    private async Task<List<Tx9501.Models.Entities.TaxDetailRecord>> GetAllReportRowsAsync(
+        string taxYear,
+        string formName,
+        IList<string> selectedAssociations,
+        bool selectAllAssociations,
+        TaxDetailListMode mode)
+    {
+        const int exportPageSize = 2000;
+        var firstPage = await _reportService.GetDetailReportPageAsync(
+            taxYear,
+            formName,
+            selectedAssociations,
+            selectAllAssociations,
+            1,
+            exportPageSize,
+            mode);
+
+        var rows = new List<Tx9501.Models.Entities.TaxDetailRecord>(firstPage.Items);
+        for (var page = 2; page <= firstPage.TotalPages; page++)
+        {
+            var nextPage = await _reportService.GetDetailReportPageAsync(
+                taxYear,
+                formName,
+                selectedAssociations,
+                selectAllAssociations,
+                page,
+                exportPageSize,
+                mode);
+            rows.AddRange(nextPage.Items);
+        }
+
+        return rows;
+    }
+
+    private static byte[] BuildReportCsv(IList<Tx9501.Models.Entities.TaxDetailRecord> rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Association,MemberNumber,MemberSub,TaxpayerType,TaxpayerId,BorrowerName,Address,Address2,City,State,Zip,ReportToIRS,Errors,InterestPaid,Points,Compensation,Rents,MedicalPayments,LegalPayments,Other,Withheld");
+
+        foreach (var row in rows)
+        {
+            var fields = new[]
+            {
+                row.Asa,
+                row.MbrNo.ToString("0", CultureInfo.InvariantCulture),
+                row.MbrSub,
+                row.SsiDc,
+                row.SsiDn.ToString("0", CultureInfo.InvariantCulture),
+                row.BorrName,
+                row.BorrAddr,
+                row.BorrAddrX,
+                row.BorrCity,
+                row.BorrState,
+                row.BorrZip.ToString("0", CultureInfo.InvariantCulture),
+                row.ReportToIrs,
+                row.Errors,
+                row.IntPd.ToString(CultureInfo.InvariantCulture),
+                row.Points.ToString(CultureInfo.InvariantCulture),
+                row.Compen.ToString(CultureInfo.InvariantCulture),
+                row.Rents.ToString(CultureInfo.InvariantCulture),
+                row.MedPay.ToString(CultureInfo.InvariantCulture),
+                row.LglPay.ToString(CultureInfo.InvariantCulture),
+                row.Other.ToString(CultureInfo.InvariantCulture),
+                row.WthHeld.ToString(CultureInfo.InvariantCulture)
+            };
+
+            sb.AppendLine(string.Join(",", fields.Select(EscapeCsv)));
+        }
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static string EscapeCsv(string? value)
+    {
+        var normalized = value ?? string.Empty;
+        if (normalized.Contains('"'))
+        {
+            normalized = normalized.Replace("\"", "\"\"");
+        }
+
+        if (normalized.Contains(',') || normalized.Contains('\n') || normalized.Contains('\r') || normalized.Contains('"'))
+        {
+            return $"\"{normalized}\"";
+        }
+
+        return normalized;
     }
 }

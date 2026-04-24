@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
 using Tx9501.Data;
+using Tx9501.Models;
 using Tx9501.Services;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -16,8 +18,22 @@ builder.Logging.AddFilter("Microsoft.AspNetCore.Hosting.Diagnostics", LogLevel.W
 // Bind only to localhost for local development.
 builder.WebHost.UseUrls(builder.Configuration["Server:Urls"] ?? "http://localhost:5001");
 
-// Add MVC with views
+// Add MVC with views.
 builder.Services.AddControllersWithViews();
+
+builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
+    .AddCookie(options =>
+    {
+        options.LoginPath = "/Account/Login";
+        options.AccessDeniedPath = "/Account/Login";
+        options.LogoutPath = "/Account/Logout";
+        options.ExpireTimeSpan = TimeSpan.FromHours(8);
+        options.SlidingExpiration = true;
+    });
+
+builder.Services.AddAuthorization();
+
+builder.Services.Configure<LdapOptions>(builder.Configuration.GetSection("Ldap"));
 
 // IBM i service - reads data from IBM i DB2 via ODBC
 builder.Services.AddScoped<IIBMiService, IBMiService>();
@@ -41,6 +57,7 @@ builder.Services.AddScoped<ISummaryService, SummaryService>();
 builder.Services.AddScoped<IMaintainService, MaintainService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IExtractService, ExtractService>();
+builder.Services.AddScoped<ILdapAuthenticationService, LdapAuthenticationService>();
 
 // Session support (replaces IBM i interactive program state)
 builder.Services.AddDistributedMemoryCache();
@@ -128,6 +145,7 @@ else
 app.UseStaticFiles();
 app.UseRouting();
 app.UseSession();
+app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllerRoute(

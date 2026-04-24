@@ -26,6 +26,16 @@
         </span>
     </div>
 
+    <form asp-action="ExclusionReport" method="get" class="terminal-row mt-2">
+        <input type="hidden" name="page" value="1" />
+        <label class="terminal-label mb-0">Association Filter</label>
+        <select id="assoc-filter" name="assoc" class="terminal-input input-sm">
+            <option value="">Loading...</option>
+        </select>
+        <button type="submit" class="btn-terminal">Apply Filter</button>
+        <a asp-action="ExclusionReport" class="btn-terminal btn-exit">Clear</a>
+    </form>
+
     <div class="table-responsive mt-3">
         <table class="table table-dark table-sm table-striped font-monospace align-middle">
             <thead>
@@ -67,18 +77,43 @@
             <span>
                 @if (Model.HasPreviousPage)
                 {
-                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber - 1)" class="btn-terminal">Prev 50</a>
+                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber - 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Prev 50</a>
                 }
                 @if (Model.HasNextPage)
                 {
-                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber + 1)" class="btn-terminal">Next 50</a>
+                    <a asp-action="ExclusionReport" asp-route-page="@(Model.PageNumber + 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Next 50</a>
                 }
             </span>
         </div>
     }
 
     <div class="terminal-footer">
+        <a asp-action="DownloadExclusionReport" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download Spreadsheet</a>
         <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
         <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
     </div>
 </div>
+
+@section Scripts {
+<script>
+(function () {
+    var select = document.getElementById('assoc-filter');
+    var currentValue = '@Html.Raw(Model.SelectedAssociationFilter)';
+    fetch('@Url.Action("GetAssociationOptions", "TaxReporting")?mode=Exclusion&currentAssoc=' + encodeURIComponent(currentValue))
+        .then(function (r) { return r.json(); })
+        .then(function (options) {
+            select.innerHTML = '<option value="">All</option>';
+            options.forEach(function (code) {
+                var opt = document.createElement('option');
+                opt.value = code;
+                opt.textContent = code;
+                if (code.toUpperCase() === currentValue.toUpperCase()) opt.selected = true;
+                select.appendChild(opt);
+            });
+        })
+        .catch(function () {
+            select.innerHTML = '<option value="">All</option>';
+        });
+}());
+</script>
+}

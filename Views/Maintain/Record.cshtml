@@ -13,6 +13,11 @@
         color: #ff0000;
         font-weight: bold;
     }
+
+    .client-invalid {
+        border-color: #dc2626 !important;
+        box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.4);
+    }
 </style>
 
 <div class="terminal-panel">
@@ -23,7 +28,7 @@
         <span class="terminal-right">Year: @r.TaxYear</span>
     </div>
 
-    <form asp-controller="Maintain" asp-action="Record" method="post">
+    <form id="maintain-record-form" asp-controller="Maintain" asp-action="Record" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="Mode" />
         <input type="hidden" asp-for="FormName" />
@@ -32,6 +37,8 @@
         <input type="hidden" asp-for="Record.Asa" />
         <input type="hidden" asp-for="Record.MbrNo" />
         <input type="hidden" asp-for="Record.MbrSub" />
+
+        <div asp-validation-summary="ModelOnly" class="text-danger mb-2"></div>
 
         <!-- ─── Key fields (display only) ──────────────────────────── -->
         <div class="terminal-section">
@@ -81,25 +88,32 @@
             <div class="terminal-row">
                 <label class="terminal-label terminal-mandatory">SSN/EIN</label>
                 <input asp-for="Record.SsiDn" class="terminal-input input-ssn" type="number" step="1" min="0" />
+                <span asp-validation-for="Record.SsiDn" class="text-danger ms-2"></span>
                 <label class="terminal-label ms-3 terminal-mandatory">Type</label>
                 <input asp-for="Record.SsiDc" class="terminal-input input-xs" maxlength="1" />
+                <span asp-validation-for="Record.SsiDc" class="text-danger ms-2"></span>
             </div>
             <div class="terminal-row">
                 <label class="terminal-label terminal-mandatory">Name</label>
                 <input asp-for="Record.BorrName" class="terminal-input input-lg" maxlength="35" />
+                <span asp-validation-for="Record.BorrName" class="text-danger ms-2"></span>
             </div>
             <div class="terminal-row">
                 <label class="terminal-label terminal-mandatory">Address</label>
                 <input asp-for="Record.BorrAddr"  class="terminal-input input-lg" maxlength="30" />
+                <span asp-validation-for="Record.BorrAddr" class="text-danger ms-2"></span>
                 <input asp-for="Record.BorrAddrX" class="terminal-input input-md ms-2" maxlength="30" placeholder="Addr Line 2" />
             </div>
             <div class="terminal-row">
                 <label class="terminal-label terminal-mandatory">City</label>
                 <input asp-for="Record.BorrCity"  class="terminal-input input-md" maxlength="25" />
+                <span asp-validation-for="Record.BorrCity" class="text-danger ms-2"></span>
                 <label class="terminal-label ms-2 terminal-mandatory">St</label>
                 <input asp-for="Record.BorrState" class="terminal-input input-xs" maxlength="2" />
+                <span asp-validation-for="Record.BorrState" class="text-danger ms-2"></span>
                 <label class="terminal-label ms-2 terminal-mandatory">Zip</label>
                 <input asp-for="Record.BorrZip"   class="terminal-input input-zip" type="number" step="1" min="0" />
+                <span asp-validation-for="Record.BorrZip" class="text-danger ms-2"></span>
             </div>
         </div>
 
@@ -112,6 +126,7 @@
                     <option value="Y">Y</option>
                     <option value="N">N</option>
                 </select>
+                <span asp-validation-for="Record.ReportToIrs" class="text-danger ms-2"></span>
                 <label class="terminal-label ms-3">Corrected</label>
                 <select asp-for="Record.CorrIn" class="terminal-input input-xs">
                     <option value="">No</option>
@@ -121,6 +136,7 @@
             <div class="terminal-row">
                 <label class="terminal-label terminal-mandatory">Non-Report Reason</label>
                 <input asp-for="Record.NonRptReason" class="terminal-input input-lg" maxlength="40" placeholder="Required if Report to IRS = N" />
+                <span asp-validation-for="Record.NonRptReason" class="text-danger ms-2"></span>
             </div>
         </div>
 
@@ -224,3 +240,140 @@
         </div>
     </form>
 </div>
+
+@section Scripts {
+<script>
+(function () {
+    var form = document.getElementById('maintain-record-form');
+    if (!form) return;
+
+    var lastSubmitter = null;
+    form.querySelectorAll('button[type="submit"]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            lastSubmitter = btn;
+        });
+    });
+
+    function isBlank(value) {
+        return !value || value.trim() === '';
+    }
+
+    function readValue(selector) {
+        var el = form.querySelector(selector);
+        return el ? el.value : '';
+    }
+
+    function clearFieldErrors() {
+        form.querySelectorAll('.client-invalid').forEach(function (el) {
+            el.classList.remove('client-invalid');
+        });
+
+        form.querySelectorAll('[data-valmsg-for]').forEach(function (msg) {
+            if (msg.textContent && msg.textContent.trim().length > 0) {
+                msg.textContent = '';
+            }
+        });
+    }
+
+    function addFieldError(fieldSelector, modelFieldName, message) {
+        var input = form.querySelector(fieldSelector);
+        if (input) {
+            input.classList.add('client-invalid');
+        }
+
+        var span = form.querySelector('[data-valmsg-for="' + modelFieldName + '"]');
+        if (span) {
+            span.textContent = message;
+        }
+    }
+
+    form.addEventListener('submit', function (e) {
+        var submitter = e.submitter || lastSubmitter;
+        if (!submitter) {
+            return;
+        }
+
+        if (submitter.name === 'ExitPressed' || submitter.name === 'DeletePressed') {
+            return;
+        }
+
+        clearFieldErrors();
+        var errors = [];
+
+        var ssiDn = readValue('[name="Record.SsiDn"]');
+        var ssiDc = readValue('[name="Record.SsiDc"]');
+        var borrName = readValue('[name="Record.BorrName"]');
+        var borrAddr = readValue('[name="Record.BorrAddr"]');
+        var borrCity = readValue('[name="Record.BorrCity"]');
+        var borrState = readValue('[name="Record.BorrState"]');
+        var borrZip = readValue('[name="Record.BorrZip"]');
+        var reportToIrs = readValue('[name="Record.ReportToIrs"]');
+        var nonRptReason = readValue('[name="Record.NonRptReason"]');
+
+        if (isBlank(ssiDn) || Number(ssiDn) <= 0) {
+            errors.push('SSN/EIN is required.');
+            addFieldError('[name="Record.SsiDn"]', 'Record.SsiDn', 'SSN/EIN is required.');
+        }
+
+        if (isBlank(ssiDc)) {
+            errors.push('Type is required.');
+            addFieldError('[name="Record.SsiDc"]', 'Record.SsiDc', 'Type is required.');
+        }
+
+        if (isBlank(borrName)) {
+            errors.push('Name is required.');
+            addFieldError('[name="Record.BorrName"]', 'Record.BorrName', 'Name is required.');
+        }
+
+        if (isBlank(borrAddr)) {
+            errors.push('Address is required.');
+            addFieldError('[name="Record.BorrAddr"]', 'Record.BorrAddr', 'Address is required.');
+        }
+
+        if (isBlank(borrCity)) {
+            errors.push('City is required.');
+            addFieldError('[name="Record.BorrCity"]', 'Record.BorrCity', 'City is required.');
+        }
+
+        if (isBlank(borrState)) {
+            errors.push('State is required.');
+            addFieldError('[name="Record.BorrState"]', 'Record.BorrState', 'State is required.');
+        }
+
+        if (isBlank(borrZip) || Number(borrZip) <= 0) {
+            errors.push('Zip is required.');
+            addFieldError('[name="Record.BorrZip"]', 'Record.BorrZip', 'Zip is required.');
+        }
+
+        if (isBlank(reportToIrs)) {
+            errors.push('Report to IRS is required.');
+            addFieldError('[name="Record.ReportToIrs"]', 'Record.ReportToIrs', 'Report to IRS is required.');
+        }
+
+        if (String(reportToIrs).toUpperCase() === 'N' && isBlank(nonRptReason)) {
+            errors.push('Non-Report Reason is required when Report to IRS is N.');
+            addFieldError('[name="Record.NonRptReason"]', 'Record.NonRptReason', 'Non-Report Reason is required when Report to IRS is N.');
+        }
+
+        if (errors.length > 0) {
+            var summary = form.querySelector('[data-valmsg-summary="true"] ul');
+            if (summary) {
+                summary.innerHTML = '';
+                errors.forEach(function (msg) {
+                    var li = document.createElement('li');
+                    li.textContent = msg;
+                    summary.appendChild(li);
+                });
+                var summaryContainer = form.querySelector('[data-valmsg-summary="true"]');
+                if (summaryContainer) {
+                    summaryContainer.classList.remove('validation-summary-valid');
+                    summaryContainer.classList.add('validation-summary-errors');
+                }
+            }
+
+            e.preventDefault();
+        }
+    });
+})();
+</script>
+}

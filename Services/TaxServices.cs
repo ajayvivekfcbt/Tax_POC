@@ -1,4 +1,5 @@
 using System.Data.Odbc;
+using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Tx9501.Data;
 using Tx9501.Models.Entities;
@@ -1577,6 +1578,78 @@ public sealed class ReportService : IReportService
         return await QueryIbmiReportPageAsync(taxYear, formName, assocList, selectAll, pageNumber, pageSize, mode);
     }
 
+    public async Task<IList<string>> GetDistinctAssociationsAsync(
+        string taxYear, string formName, IList<string> associations, bool selectAll, TaxDetailListMode mode)
+    {
+        var assocList = associations.Select(a => a.Trim()).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        try
+        {
+            return await GetDistinctAssociationsIbmiAsync(taxYear, formName, assocList, selectAll, mode);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Falling back to SQLite distinct associations for {TaxYear} {FormName}.", taxYear, formName);
+            return await GetDistinctAssociationsLocalAsync(taxYear, formName, assocList, selectAll, mode);
+        }
+    }
+
+    private async Task<IList<string>> GetDistinctAssociationsIbmiAsync(
+        string taxYear, string formName, IList<string> associations, bool selectAll, TaxDetailListMode mode)
+    {
+        if (!int.TryParse(taxYear, out var taxYearInt))
+            return Array.Empty<string>();
+
+        var sql = new System.Text.StringBuilder($"SELECT DISTINCT ASA FROM {_lib}/TXRDTL WHERE TAXYR=? AND FORM=?");
+
+        if (!selectAll && associations.Count > 0)
+        {
+            sql.Append(" AND ASA IN (");
+            sql.Append(string.Join(",", associations.Select(_ => "?")));
+            sql.Append(")");
+        }
+
+        if (mode == TaxDetailListMode.Error)
+            sql.Append(" AND ERRORS='Y'");
+        else if (mode == TaxDetailListMode.Exclusion)
+            sql.Append(" AND RPT_TO_IRS<>'Y'");
+
+        sql.Append(" ORDER BY ASA");
+
+        var result = new List<string>();
+        await using var conn = new OdbcConnection(_cs);
+        await conn.OpenAsync();
+        await using var cmd = new OdbcCommand(sql.ToString(), conn);
+        cmd.Parameters.AddWithValue("?", taxYearInt);
+        cmd.Parameters.AddWithValue("?", formName.Trim().PadRight(9));
+        foreach (var assoc in associations)
+            cmd.Parameters.AddWithValue("?", assoc.PadRight(3));
+
+        await using var rdr = await cmd.ExecuteReaderAsync();
+        while (await rdr.ReadAsync())
+        {
+            var asa = rdr.IsDBNull(0) ? string.Empty : rdr.GetString(0).Trim();
+            if (!string.IsNullOrEmpty(asa))
+                result.Add(asa);
+        }
+
+        return result;
+    }
+
+    private async Task<IList<string>> GetDistinctAssociationsLocalAsync(
+        string taxYear, string formName, IList<string> associations, bool selectAll, TaxDetailListMode mode)
+    {
+        var query = BuildLocalReportQuery(taxYear, formName, associations, selectAll);
+        query = ApplyReportMode(query, mode);
+
+        return await query
+            .Select(d => d.Asa)
+            .Where(asa => asa != null && asa.Trim() != "")
+            .Distinct()
+            .OrderBy(asa => asa)
+            .ToListAsync();
+    }
+
     public Task PrintExclusionReportAsync(string taxYear, string formName,
                                            IEnumerable<string> associations, bool selectAll)
         => CallAsync("TX9531", taxYear, formName, associations, selectAll);
@@ -1847,6 +1920,9 @@ public sealed class ExtractService : IExtractService
     private readonly string _cs;
     private readonly string _lib;
     private readonly ILogger<ExtractService> _logger;
+    private readonly bool _goAnywhereEnabled;
+    private readonly string _goAnywhereExePath;
+    private readonly string _goAnywhereArgs;
 
     private readonly LocalDbContext _db;
     private bool _tx9565rUnavailable;
@@ -1857,6 +1933,9 @@ public sealed class ExtractService : IExtractService
         _ibmi   = ibmi;
         _cs     = cfg.GetConnectionString("IBMi")!;
         _lib    = cfg["IBMiSettings:Library"] ?? "TXLIB";
+        _goAnywhereEnabled = bool.TryParse(cfg["GoAnywhere:Enabled"], out var enabled) && enabled;
+        _goAnywhereExePath = cfg["GoAnywhere:ExecutablePath"] ?? "TODO_ADD_GOANYWHERE_EXE_PATH";
+        _goAnywhereArgs = cfg["GoAnywhere:Arguments"] ?? "";
         _db     = db;
         _logger = logger;
     }
@@ -2360,6 +2439,7 @@ public sealed class ExtractService : IExtractService
             _logger.LogWarning(
                 "TX9565R previously detected as unavailable. Skipping IBM i transmit call for TaxYear={TaxYear}, ExtSeq={ExtSeq} and using web-only completion.",
                 taxYear, extSeq);
+            await TryLaunchGoAnywhereAsync(taxYear, extSeq);
             return;
         }
 
@@ -2380,6 +2460,83 @@ public sealed class ExtractService : IExtractService
         {
             _logger.LogWarning(ex,
                 "TX9565R unavailable for transmit (TaxYear={TaxYear}, ExtSeq={ExtSeq}). Falling back to web-only completion message.",
+                taxYear, extSeq);
+        }
+
+        await TryLaunchGoAnywhereAsync(taxYear, extSeq);
+    }
+
+    private async Task TryLaunchGoAnywhereAsync(string taxYear, decimal extSeq)
+    {
+        if (!_goAnywhereEnabled)
+        {
+            _logger.LogInformation(
+                "GoAnywhere launch skipped because GoAnywhere:Enabled=false. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                taxYear, extSeq);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(_goAnywhereExePath)
+            || _goAnywhereExePath.Contains("TODO_ADD_GOANYWHERE_EXE_PATH", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning(
+                "GoAnywhere launch requested but ExecutablePath is still placeholder. Set GoAnywhere:ExecutablePath in appsettings. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                taxYear, extSeq);
+            return;
+        }
+
+        if (!File.Exists(_goAnywhereExePath))
+        {
+            _logger.LogWarning(
+                "GoAnywhere executable not found at path '{ExePath}'. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                _goAnywhereExePath, taxYear, extSeq);
+            return;
+        }
+
+        var args = (_goAnywhereArgs ?? string.Empty)
+            .Replace("{taxYear}", taxYear)
+            .Replace("{extSeq}", extSeq.ToString("0"));
+
+        try
+        {
+            var processInfo = new ProcessStartInfo
+            {
+                FileName = _goAnywhereExePath,
+                Arguments = args,
+                RedirectStandardOutput = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(processInfo);
+            if (process is null)
+            {
+                _logger.LogWarning(
+                    "Failed to start GoAnywhere process. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                    taxYear, extSeq);
+                return;
+            }
+
+            var output = process.StandardOutput.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogInformation(
+                    "GoAnywhere process completed successfully. TaxYear={TaxYear}, ExtSeq={ExtSeq}, Output={Output}",
+                    taxYear, extSeq, output);
+            }
+            else
+            {
+                _logger.LogWarning(
+                    "GoAnywhere process failed with exit code {ExitCode}. TaxYear={TaxYear}, ExtSeq={ExtSeq}, Output={Output}",
+                    process.ExitCode, taxYear, extSeq, output);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Error while launching GoAnywhere executable. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
                 taxYear, extSeq);
         }
     }

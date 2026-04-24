@@ -108,6 +108,7 @@ public class ExtractController : Controller
                     await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
                     TempData["StatusMessage"] =
                         $"Extract {seq} transmit completed. " +
+                        "If configured, GoAnywhere EXE launch was attempted. " +
                         "If TX9565R is unavailable on IBM i, web fallback was used.";
                     break;
 

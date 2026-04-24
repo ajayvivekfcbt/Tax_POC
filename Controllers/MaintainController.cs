@@ -154,6 +154,8 @@ public class MaintainController : Controller
         ModelState.Remove("Record.SecAddr");
         ModelState.Remove("Record.SecDesc");
         ModelState.Remove("Record.BorrAddrX");
+
+        ValidateMandatoryFields(vm);
         
         if (!ModelState.IsValid) 
         {
@@ -166,6 +168,45 @@ public class MaintainController : Controller
             await _maintainSvc.UpdateRecordAsync(vm.Record);
         TempData["StatusMessage"] = vm.Mode == "ADD" ? "Record added." : "Record updated.";
         return RedirectToAction("Select");
+    }
+
+    private void ValidateMandatoryFields(MaintainRecordViewModel vm)
+    {
+        if (vm.Record is null)
+        {
+            ModelState.AddModelError(string.Empty, "Record data is required.");
+            return;
+        }
+
+        if (vm.Record.SsiDn <= 0)
+            ModelState.AddModelError("Record.SsiDn", "SSN/EIN is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.SsiDc))
+            ModelState.AddModelError("Record.SsiDc", "Type is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.BorrName))
+            ModelState.AddModelError("Record.BorrName", "Name is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.BorrAddr))
+            ModelState.AddModelError("Record.BorrAddr", "Address is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.BorrCity))
+            ModelState.AddModelError("Record.BorrCity", "City is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.BorrState))
+            ModelState.AddModelError("Record.BorrState", "State is required.");
+
+        if (vm.Record.BorrZip <= 0)
+            ModelState.AddModelError("Record.BorrZip", "Zip is required.");
+
+        if (string.IsNullOrWhiteSpace(vm.Record.ReportToIrs))
+            ModelState.AddModelError("Record.ReportToIrs", "Report to IRS is required.");
+
+        if (string.Equals(vm.Record.ReportToIrs, "N", StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(vm.Record.NonRptReason))
+        {
+            ModelState.AddModelError("Record.NonRptReason", "Non-Report Reason is required when Report to IRS is N.");
+        }
     }
 
     // ── Error list (F10) ──────────────────────────────────────────────────
