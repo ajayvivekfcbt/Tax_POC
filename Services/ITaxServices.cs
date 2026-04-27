@@ -165,16 +165,28 @@ public interface IExtractService
     /// <summary>Clear an extract (TX9561 – deletes TXIRSA/B/C/F/X records + clears TXIRSB).</summary>
     Task ClearExtractAsync(string taxYear, decimal extSeq);
 
+    /// <summary>Force-delete an extract from IBM i TXIRST/TXIRSB tables directly via SQL.</summary>
+    Task ForceDeleteExtractFromIBMiAsync(string taxYear, decimal extSeq);
+
+    /// <summary>Clear all local extract records from SQLite database.</summary>
+    Task ClearAllLocalExtractsAsync();
+
+    /// <summary>Delete a specific local extract record from SQLite database only.</summary>
+    Task DeleteLocalExtractAsync(string taxYear, decimal extSeq);
+
     /// <summary>Build the IRS file (TX9562 / TX9563) for the given extract sequence.</summary>
     Task BuildIrsFileAsync(string taxYear, decimal extSeq, IEnumerable<string> forms,
                            IEnumerable<string> associations);
 
-    /// <summary>Transmit the extract file to the print vendor (TX9565R / BB1220).</summary>
-    Task TransmitExtractAsync(string taxYear, decimal extSeq);
+    /// <summary>Transmit the extract file to the print vendor (TX9565R / BB1220). Returns true if file exists and transmit was attempted, false if file not found.</summary>
+    Task<bool> TransmitExtractAsync(string taxYear, decimal extSeq);
 
     /// <summary>Return the record count for a completed extract.</summary>
     Task<long> GetExtractRecordCountAsync(string taxYear, decimal extSeq);
 
     /// <summary>Return generated IRS extract file content for download when available.</summary>
     Task<(string FileName, byte[] Content)?> DownloadExtractAsync(string taxYear, decimal extSeq);
+
+    /// <summary>Get available associations for the tax year that have tax detail records.</summary>
+    Task<IList<AssociationRow>> GetAvailableAssociationsAsync(string taxYear);
 }

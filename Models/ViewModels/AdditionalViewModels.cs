@@ -294,6 +294,13 @@ public class ExtractDefineViewModel
 
     [StringLength(40)]
     public string   XmtrName2    { get; set; } = string.Empty;
+    
+    // Form and Association Filters
+    public string[]      FormOptions    { get; set; } = Array.Empty<string>();
+    public List<string>  SelectedForms  { get; set; } = new();
+    public List<string>  AssocOptions   { get; set; } = new();
+    public List<string>  SelectedAssocs { get; set; } = new();
+    
     public bool     IsReadOnly   { get; set; }
     public bool     CancelPressed { get; set; }
 }

@@ -42,12 +42,6 @@ public class ExtractController : Controller
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Index(ExtractListViewModel vm)
     {
-        // Log EVERYTHING posted
-        var formDump = string.Join(", ", Request.Form.Keys.Select(k => $"{k}={Request.Form[k]}"));
-        _logger.LogWarning("Extract POST dump: {FormData}", formDump);
-        _logger.LogWarning("VM state: TaxYear={TaxYear} ExecutePressed={Execute} AddPressed={Add} ExitPressed={Exit}",
-            vm.TaxYear, vm.ExecutePressed, vm.AddPressed, vm.ExitPressed);
-
         if (vm.ExitPressed)
         {
             _logger.LogInformation("ExitPressed detected");
@@ -89,7 +83,7 @@ public class ExtractController : Controller
             if (option is null || seq is null)
             {
                 _logger.LogWarning("No valid option selected");
-                TempData["ErrorMessage"] = "Type an option (1, 4, 5, 9, X) next to a row and press Enter=Execute.";
+                TempData["ErrorMessage"] = "Type an option (3, 4, 5, 9, D, Z, X, F) next to a row and press Enter=Execute. Use F6=Add to create extracts.";
                 return RedirectToAction("Index");
             }
 
@@ -97,23 +91,64 @@ public class ExtractController : Controller
             switch (option)
             {
                 case "1":
-                    return RedirectToAction("Setup", new { year = vm.TaxYear, seq = seq.Value });
+                    // Option 1 disabled - use Define/Setup workflow instead
+                    TempData["ErrorMessage"] = "Option 1 (Auto-build) is disabled. Use Define screen to create extracts manually.";
+                    return RedirectToAction("Index");
+
+                case "3":
+                    // 3 = Delete from SQLite only
+                    await _extractSvc.DeleteLocalExtractAsync(vm.TaxYear, seq.Value);
+                    TempData["StatusMessage"] = $"Extract {seq} deleted from SQLite local database.";
+                    return RedirectToAction("Index");
 
                 case "4":
                     await _extractSvc.ClearExtractAsync(vm.TaxYear, seq.Value);
                     TempData["StatusMessage"] = $"Extract {seq} cleared.";
-                    break;
+                    return RedirectToAction("Index");
+
+                case "D":
+                    // D = Delete all local extracts from SQLite
+                    await _extractSvc.ClearAllLocalExtractsAsync();
+                    TempData["StatusMessage"] = "All local extract records cleared from SQLite database.";
+                    return RedirectToAction("Index");
 
                 case "5":
-                    await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
-                    TempData["StatusMessage"] =
-                        $"Extract {seq} transmit completed. " +
-                        "If configured, GoAnywhere EXE launch was attempted. " +
-                        "If TX9565R is unavailable on IBM i, web fallback was used.";
-                    break;
+                    var transmitSuccess = await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
+                    if (!transmitSuccess)
+                    {
+                        TempData["ErrorMessage"] = 
+                            $"Extract file not found for sequence {seq}. " +
+                            "Please create (Option 1) and build the extract first, then transmit.";
+                    }
+                    else
+                    {
+                        TempData["StatusMessage"] =
+                            $"Extract {seq} transmit completed. " +
+                            "If configured, GoAnywhere EXE launch was attempted. " +
+                            "If TX9565R is unavailable on IBM i, web fallback was used.";
+                    }
+                    return RedirectToAction("Index");
 
                 case "9":
                     return RedirectToAction("FileViewer", new { year = vm.TaxYear, seq = seq.Value });
+
+                case "F":
+                    // F6 (Edit): show Define screen to select forms/associations
+                    return RedirectToAction("Define", new { year = vm.TaxYear, seq = seq.Value });
+
+                case "Z":
+                    // Z = Force-delete from IBM i (for stuck/test records)
+                    try
+                    {
+                        await _extractSvc.ForceDeleteExtractFromIBMiAsync(vm.TaxYear, seq.Value);
+                        TempData["StatusMessage"] = $"Extract {seq} force-deleted from IBM i.";
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Force-delete failed for seq {Seq}", seq.Value);
+                        TempData["ErrorMessage"] = $"Force-delete failed: {ex.Message}";
+                    }
+                    return RedirectToAction("Index");
 
                 case "X":
                     var dl = await _extractSvc.DownloadExtractAsync(vm.TaxYear, seq.Value);
@@ -126,8 +161,8 @@ public class ExtractController : Controller
                     return File(dl.Value.Content, "text/plain", dl.Value.FileName);
 
                 default:
-                    TempData["ErrorMessage"] = $"Option '{option}' is not valid. Use 1, 4, 5, 9, or X.";
-                    break;
+                    TempData["ErrorMessage"] = $"Option '{option}' is not valid. Use 1, 4, 5, 9, F, or X.";
+                    return RedirectToAction("Index");
             }
         }
 
@@ -156,6 +191,11 @@ public class ExtractController : Controller
             SelectDate  = existing?.ExtSelDat ?? DateTime.Now.ToString("yyyy-MM-dd"),
             XmtrName    = existing?.XmtrName ?? "",
             XmtrName2   = existing?.XmtrName2 ?? "",
+            FormOptions = AllForms(),
+            AssocOptions = (await _extractSvc.GetAvailableAssociationsAsync(year))
+                .Select(a => a.CorpCode)
+                .OrderBy(a => a)
+                .ToList(),
             IsReadOnly  = display
         };
         return View(vm);
@@ -171,6 +211,10 @@ public class ExtractController : Controller
 
         var seq = await _extractSvc.CreateExtractAsync(
             vm.TaxYear, vm.Description, vm.SelectDate, vm.XmtrName, vm.XmtrName2);
+
+        // Store selected forms and associations in TempData to pass to Setup
+        TempData["SelectedForms"] = string.Join(",", vm.SelectedForms ?? new List<string>());
+        TempData["SelectedAssocs"] = string.Join(",", vm.SelectedAssocs ?? new List<string>());
 
         TempData["StatusMessage"] = $"Extract {seq} created.";
         return RedirectToAction("Setup", new { year = vm.TaxYear, seq });
@@ -215,15 +259,41 @@ public class ExtractController : Controller
     // ── Setup — select forms & associations (TX9562) ──────────────────────
 
     [HttpGet]
-    public IActionResult Setup(string year, decimal seq)
+    public async Task<IActionResult> Setup(string year, decimal seq)
     {
         var ctrl = LoadControl();
+        
+        // Load associations for the year
+        var assocList = await _extractSvc.GetAvailableAssociationsAsync(year);
+        var assocOptions = assocList
+            .Select(a => a.CorpCode)
+            .OrderBy(a => a)
+            .ToList();
+
+        // Get selections from TempData (passed from Define), or use defaults
+        var selectedFormsStr = TempData["SelectedForms"] as string ?? string.Empty;
+        var selectedAssocsStr = TempData["SelectedAssocs"] as string ?? string.Empty;
+
+        var selectedForms = selectedFormsStr
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(f => f.Trim())
+            .Where(f => !string.IsNullOrEmpty(f))
+            .ToList();
+
+        var selectedAssocs = selectedAssocsStr
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(a => a.Trim())
+            .Where(a => !string.IsNullOrEmpty(a))
+            .ToList();
+
         return View(new ExtractSetupViewModel
         {
             TaxYear     = year,
             ExtSeq      = seq,
             FormOptions = AllForms(),
-            AssocOptions = new List<string>()  // loaded client-side via JSON or from session
+            SelectedForms = selectedForms,
+            AssocOptions = assocOptions,
+            SelectedAssocs = selectedAssocs
         });
     }
 
@@ -243,6 +313,39 @@ public class ExtractController : Controller
             $"IRS file build completed for extract {vm.ExtSeq}. " +
             "If TX9563 is unavailable on IBM i, local web fallback was used.";
         return RedirectToAction("Index");
+    }
+
+    // ── BuildDirect — create new extract and build with all forms/associations ──
+
+    [HttpGet]
+    public async Task<IActionResult> BuildDirect(string year)
+    {
+        try
+        {
+            // Create new extract with default values
+            var description = $"Auto-build {DateTime.Now:yyyy-MM-dd HH:mm}";
+            var selectDate = DateTime.Now.ToString("yyyy-MM-dd");
+            var seq = await _extractSvc.CreateExtractAsync(year, description, selectDate, "", "");
+
+            // Get all available forms and associations
+            var allForms = new List<string> { "1098", "1099-A", "1099-MISC", "1099-NEC", "1099-INT", "1099-DIV" };
+            var allAssocs = (await _extractSvc.GetAvailableAssociationsAsync(year))
+                .Select(a => a.CorpCode)
+                .ToList();
+
+            // Build IRS file with all forms and associations
+            await _extractSvc.BuildIrsFileAsync(year, seq, allForms, allAssocs);
+
+            TempData["StatusMessage"] =
+                $"Extract {seq} created and built successfully with all forms and associations.";
+            return RedirectToAction("Index");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in BuildDirect");
+            TempData["ErrorMessage"] = $"Error creating/building extract: {ex.Message}";
+            return RedirectToAction("Index");
+        }
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────

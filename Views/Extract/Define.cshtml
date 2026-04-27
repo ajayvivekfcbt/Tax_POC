@@ -81,6 +81,48 @@
             }
         </div>
 
+        <!-- Form Filter Section -->
+        <div class="terminal-section">
+            <div class="terminal-label-bold">Select Forms (leave blank for all)</div>
+            @if (Model.FormOptions?.Length > 0)
+            {
+                <div class="terminal-checkbox-group">
+                    @foreach (var form in Model.FormOptions)
+                    {
+                        <div class="terminal-row">
+                            <input type="checkbox" id="form_@form" name="SelectedForms" value="@form" 
+                                   @(Model.SelectedForms?.Contains(form) == true ? "checked" : "") 
+                                   @(Model.IsReadOnly ? "disabled" : "") />
+                            <label for="form_@form" class="terminal-label-inline">@form</label>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Association Filter Section -->
+        <div class="terminal-section">
+            <div class="terminal-label-bold">Select Associations (leave blank for all)</div>
+            @if (Model.AssocOptions?.Count > 0)
+            {
+                <div class="terminal-checkbox-group">
+                    @foreach (var assoc in Model.AssocOptions)
+                    {
+                        <div class="terminal-row">
+                            <input type="checkbox" id="assoc_@assoc" name="SelectedAssocs" value="@assoc" 
+                                   @(Model.SelectedAssocs?.Contains(assoc) == true ? "checked" : "") 
+                                   @(Model.IsReadOnly ? "disabled" : "") />
+                            <label for="assoc_@assoc" class="terminal-label-inline">@assoc</label>
+                        </div>
+                    }
+                </div>
+            }
+            @if (Model.AssocOptions?.Count == 0)
+            {
+                <div class="terminal-message">No associations available for this year</div>
+            }
+        </div>
+
         <div class="terminal-footer">
             @if (!Model.IsReadOnly)
             {
