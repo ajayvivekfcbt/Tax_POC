@@ -276,13 +276,13 @@ public class ExtractListViewModel
     public bool                        AddPressed     { get; set; }
     public bool                        ExecutePressed { get; set; }
     public string?                     SelectedOption { get; set; }
-    public decimal?                    SelectedSeq    { get; set; }
+    public long?                       SelectedSeq    { get; set; }
 }
 
 public class ExtractDefineViewModel
 {
     public string   TaxYear      { get; set; } = string.Empty;
-    public decimal? ExtSeq       { get; set; }
+    public long?    ExtSeq       { get; set; }
 
     [Required(ErrorMessage = "Description is required.")]
     [StringLength(40)]
@@ -308,7 +308,7 @@ public class ExtractDefineViewModel
 public class ExtractSetupViewModel
 {
     public string        TaxYear        { get; set; } = string.Empty;
-    public decimal       ExtSeq         { get; set; }
+    public long          ExtSeq         { get; set; }
     public string[]      FormOptions    { get; set; } = Array.Empty<string>();
     public List<string>  SelectedForms  { get; set; } = new();
     public List<string>  AssocOptions   { get; set; } = new();
@@ -321,10 +321,50 @@ public class ExtractSetupViewModel
 public class ExtractFileViewerViewModel
 {
     public string TaxYear { get; set; } = string.Empty;
-    public decimal ExtSeq { get; set; }
+    public long    ExtSeq { get; set; }
     public string RunDescription { get; set; } = string.Empty;
     public string RunDate { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public List<string> Lines { get; set; } = new();
     public string ErrorMessage { get; set; } = string.Empty;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Admin - SQLite staging browser
+// ─────────────────────────────────────────────────────────────────────────────
+
+public class StagedTaxRowViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+    public string Form { get; set; } = string.Empty;
+    public string Asa { get; set; } = string.Empty;
+    public decimal MbrNo { get; set; }
+    public string MbrSub { get; set; } = string.Empty;
+    public string BorrName { get; set; } = string.Empty;
+    public string Errors { get; set; } = string.Empty;
+    public string ReportToIrs { get; set; } = string.Empty;
+    public decimal IntPd { get; set; }
+    public decimal Compen { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+public class StagedTaxViewModel
+{
+    public string TaxYearFilter { get; set; } = string.Empty;
+    public string FormFilter { get; set; } = string.Empty;
+    public string AssocFilter { get; set; } = string.Empty;
+    public int PageNumber { get; set; } = 1;
+    public int PageSize { get; set; } = 50;
+    public int TotalCount { get; set; }
+    public int TotalPages => TotalCount <= 0 ? 1 : (int)Math.Ceiling(TotalCount / (double)PageSize);
+    public int FirstRowNumber => TotalCount == 0 ? 0 : ((PageNumber - 1) * PageSize) + 1;
+    public int LastRowNumber => TotalCount == 0 ? 0 : Math.Min(PageNumber * PageSize, TotalCount);
+    public bool HasPreviousPage => PageNumber > 1;
+    public bool HasNextPage => PageNumber < TotalPages;
+
+    public int TotalStagedTaxDetails { get; set; }
+    public int TotalStagedTaxAudits { get; set; }
+    public IList<string> AvailableForms { get; set; } = new List<string>();
+    public IList<string> AvailableAssociations { get; set; } = new List<string>();
+    public IList<StagedTaxRowViewModel> Rows { get; set; } = new List<StagedTaxRowViewModel>();
 }

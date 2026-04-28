@@ -59,6 +59,9 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IExtractService, ExtractService>();
 builder.Services.AddScoped<ILdapAuthenticationService, LdapAuthenticationService>();
 
+// Validation state service - thread-safe state management for background validation tasks
+builder.Services.AddSingleton<IValidationStateService, ValidationStateService>();
+
 // Session support (replaces IBM i interactive program state)
 builder.Services.AddDistributedMemoryCache();
 builder.Services.AddSession(options =>

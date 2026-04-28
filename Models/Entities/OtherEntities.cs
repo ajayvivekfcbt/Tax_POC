@@ -34,13 +34,13 @@ public class TaxAssociationRecord
 public class ExtractControlRecord
 {
     public string  TaxYear    { get; set; } = string.Empty;   // TAXYR  4A
-    public decimal ExtSeq     { get; set; }                   // EXT_SEQ  5P0
+    public long    ExtSeq     { get; set; }                   // EXT_SEQ  5P0
     public string  ExtDesc    { get; set; } = string.Empty;   // EXT_DESC 40A
     public string  ExtDate    { get; set; } = string.Empty;   // EXT_DATE timestamp
     public string  ExtSelDat  { get; set; } = string.Empty;   // EXT_SELDAT selection date
     public string  XmtrName   { get; set; } = string.Empty;   // XMTR_NAME 40A
     public string  XmtrName2  { get; set; } = string.Empty;   // XMTR_NAME2 40A
-    public decimal BRecsT     { get; set; }                   // #BRECS_T record count
+    public long    BRecsT     { get; set; }                   // #BRECS_T record count
 }
 
 /// <summary>

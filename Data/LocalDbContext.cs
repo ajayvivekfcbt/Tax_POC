@@ -281,7 +281,7 @@ public class LocalExtract
 {
     public int      Id        { get; set; }   // PK auto-increment
     public string   TaxYear   { get; set; } = string.Empty;
-    public decimal  ExtSeq    { get; set; }
+    public long     ExtSeq    { get; set; }
     public string   ExtDesc   { get; set; } = string.Empty;
     public string   ExtDate   { get; set; } = string.Empty;
     public string   ExtSelDat { get; set; } = string.Empty;

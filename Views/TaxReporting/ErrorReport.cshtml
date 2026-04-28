@@ -99,21 +99,19 @@
 (function () {
     var select = document.getElementById('assoc-filter');
     var currentValue = '@Html.Raw(Model.SelectedAssociationFilter)';
-    fetch('@Url.Action("GetAssociationOptions", "TaxReporting")?mode=Error&currentAssoc=' + encodeURIComponent(currentValue))
-        .then(function (r) { return r.json(); })
-        .then(function (options) {
-            select.innerHTML = '<option value="">All</option>';
-            options.forEach(function (code) {
-                var opt = document.createElement('option');
-                opt.value = code;
-                opt.textContent = code;
-                if (code.toUpperCase() === currentValue.toUpperCase()) opt.selected = true;
-                select.appendChild(opt);
-            });
-        })
-        .catch(function () {
-            select.innerHTML = '<option value="">All</option>';
-        });
+    
+    // Get all available associations with errors from the server
+    var allAssociations = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableAssociationFilters));
+    
+    // Populate dropdown with all associations that have errors
+    select.innerHTML = '<option value="">All</option>';
+    allAssociations.forEach(function (code) {
+        var opt = document.createElement('option');
+        opt.value = code;
+        opt.textContent = code;
+        if (code.toUpperCase() === currentValue.toUpperCase()) opt.selected = true;
+        select.appendChild(opt);
+    });
 }());
 </script>
 }

@@ -63,14 +63,14 @@
         <div class="col-11"><span class="text-info fw-bold">Description</span></div>
     </div>
 
-    <form asp-action="FormMenu" method="post">
+    <form asp-action="FormMenu" method="post" id="formMenuForm">
         @Html.AntiForgeryToken()
 
         <!-- ── Row 7  – Maintain ────────────────────────────────────────── -->
         @FormRow("MAINTAIN", "opt_maintain", Model.D_Maintain)
 
-        <!-- ── Row 9  – Edit / Validate ─────────────────────────────────── -->
-        @FormRow("EDIT",     "opt_edit",     Model.D_Edit)
+        <!-- ── Row 9  – Edit / Validate (Check for Errors) ─────────────────────────────────── -->
+        @FormRow("EDIT",     "opt_edit",     "Check for Errors – select associations")
 
         <!-- ── Row 11 – Print Detail ────────────────────────────────────── -->
         @FormRow("PRTDTL",   "opt_prtdtl",  Model.D_PrtDtl)
@@ -99,23 +99,50 @@
         <hr class="terminal-rule" />
 
         <!-- ── Row 24 – Function keys ────────────────────────────────────── -->
-        <div class="d-flex gap-3 mt-2">
-            <button type="submit" class="btn btn-success btn-sm font-monospace"
-                    onclick="return validateAction();">
+        <div class="d-flex gap-3 mt-2" id="menuButtons">
+            <button type="submit" class="btn btn-success btn-sm font-monospace menuButton"
+                    onclick="return validateAction();" id="enterBtn">
                 Enter
             </button>
             <!-- F12 = Cancel → back to Main Menu -->
             <button type="submit" name="backToMain" value="1"
-                    class="btn btn-outline-warning btn-sm font-monospace">
+                    class="btn btn-outline-warning btn-sm font-monospace menuButton" id="cancelBtn">
                 F12 = Cancel
             </button>
             <!-- F3 = Exit → clears session -->
             <button type="submit"
                     formaction="@Url.Action("Exit", "TaxReporting")"
                     formmethod="post"
-                    class="btn btn-outline-secondary btn-sm font-monospace">
+                    class="btn btn-outline-secondary btn-sm font-monospace menuButton" id="exitBtn">
                 F3 = Exit
             </button>
+        </div>
+
+        <!-- Validation Progress Indicator (hidden until validation runs) -->
+        <div id="validationProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+            <div style="text-align: center; margin-bottom: 15px;">
+                <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Validating...</span>
+                </div>
+            </div>
+            <p class="mt-2 font-monospace text-muted" style="text-align: center; margin-bottom: 15px;">
+                <strong>⏳ Validation in progress...</strong><br>
+                <small>Please wait while records are being validated.</small>
+            </p>
+            
+            <!-- Progress Bar -->
+            <div style="margin-top: 15px;">
+                <div class="progress" style="height: 25px;">
+                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" 
+                         style="width: 0%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 12px;">
+                        0%
+                    </div>
+                </div>
+                <p class="mt-2 font-monospace text-muted" style="text-align: center; margin: 0; font-size: 0.9rem;">
+                    <span id="progressText">Processing records...</span>
+                </p>
+            </div>
         </div>
     </form>
 </div>
@@ -128,7 +155,7 @@
         <div class=""terminal-row row align-items-center py-0"">
             <div class=""col-1"">
                 <input type=""radio""
-                       class=""form-check-input terminal-opt-radio""
+                       class=""form-check-input terminal-opt-radio menuRadio""
                        name=""action""
                        value=""{actionValue}""
                        id=""{radioId}"" />
@@ -144,13 +171,166 @@
 
 @section Scripts {
 <script>
+// Track validation polling state
+let validationPollingInterval = null;
+let isValidationRunning = @(Model.IsValidationRunning ? "true" : "false");
+
+document.addEventListener('DOMContentLoaded', function() {
+    // If validation was already running when page loaded, start polling
+    if (isValidationRunning) {
+        disableMenuOptions();
+        showValidationProgress();
+        startValidationPolling();
+    }
+});
+
 function validateAction() {
     const selected = document.querySelector('input[name="action"]:checked');
     if (!selected) {
         alert('Please select an option.');
         return false;
     }
+    
+    // If user selects EDIT (validation), disable options immediately
+    if (selected.value === 'EDIT') {
+        console.log('Validation selected - will disable options after redirect');
+    }
+    
+    console.log('Form option selected:', selected.value);
     return true;
+}
+
+function disableMenuOptions() {
+    // Disable all menu radio buttons
+    document.querySelectorAll('.menuRadio').forEach(radio => {
+        radio.disabled = true;
+    });
+    
+    // Disable all menu buttons
+    document.querySelectorAll('.menuButton').forEach(btn => {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+    });
+}
+
+function enableMenuOptions() {
+    // Enable all menu radio buttons
+    document.querySelectorAll('.menuRadio').forEach(radio => {
+        radio.disabled = false;
+    });
+    
+    // Enable all menu buttons
+    document.querySelectorAll('.menuButton').forEach(btn => {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+    });
+}
+
+function showValidationProgress() {
+    const progressDiv = document.getElementById('validationProgress');
+    if (progressDiv) {
+        progressDiv.style.display = 'block';
+    }
+}
+
+function hideValidationProgress() {
+    const progressDiv = document.getElementById('validationProgress');
+    if (progressDiv) {
+        progressDiv.style.display = 'none';
+    }
+}
+
+function startValidationPolling() {
+    // Poll status every 1 second
+    validationPollingInterval = setInterval(checkValidationStatus, 1000);
+}
+
+function stopValidationPolling() {
+    if (validationPollingInterval) {
+        clearInterval(validationPollingInterval);
+        validationPollingInterval = null;
+    }
+}
+
+function checkValidationStatus() {
+    fetch('@Url.Action("GetValidationStatus", "TaxReporting")', {
+        method: 'GET',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        console.log('Validation status:', data);
+        
+        // Update progress bar if validation is running
+        if (data.isRunning) {
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            if (progressBar) {
+                const progress = Math.min(Math.max(data.progress || 0, 0), 100);
+                progressBar.style.width = progress + '%';
+                progressBar.textContent = progress + '%';
+            }
+            
+            if (progressText) {
+                const progress = data.progress || 0;
+                progressText.textContent = `Processing records: ${progress}% complete`;
+            }
+        } else {
+            // Validation has completed
+            stopValidationPolling();
+            hideValidationProgress();
+            enableMenuOptions();
+            
+            // Set progress to 100% before hiding
+            const progressBar = document.getElementById('progressBar');
+            if (progressBar) {
+                progressBar.style.width = '100%';
+                progressBar.textContent = '100%';
+            }
+            
+            // Show completion message
+            if (data.result) {
+                const successAlert = document.createElement('div');
+                successAlert.className = 'alert alert-success alert-dismissible fade show py-2 px-3 font-monospace';
+                successAlert.style.fontSize = '0.95rem';
+                successAlert.style.borderLeft = '4px solid #28a745';
+                successAlert.innerHTML = data.result + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                
+                const formMenu = document.querySelector('.terminal-panel');
+                const firstChild = formMenu.querySelector('.alert, .terminal-header');
+                if (firstChild) {
+                    firstChild.parentNode.insertBefore(successAlert, firstChild);
+                } else {
+                    formMenu.insertBefore(successAlert, formMenu.firstChild);
+                }
+            } else if (data.error) {
+                const errorAlert = document.createElement('div');
+                errorAlert.className = 'alert alert-danger alert-dismissible fade show py-2 px-3 font-monospace';
+                errorAlert.style.fontSize = '0.95rem';
+                errorAlert.style.borderLeft = '4px solid #dc3545';
+                errorAlert.innerHTML = '<strong>❌ Error:</strong> ' + data.error + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
+                
+                const formMenu = document.querySelector('.terminal-panel');
+                const firstChild = formMenu.querySelector('.alert, .terminal-header');
+                if (firstChild) {
+                    firstChild.parentNode.insertBefore(errorAlert, firstChild);
+                } else {
+                    formMenu.insertBefore(errorAlert, formMenu.firstChild);
+                }
+            }
+            
+            isValidationRunning = false;
+        }
+    })
+    .catch(error => {
+        console.error('Error checking validation status:', error);
+        // Continue polling on error
+    });
 }
 </script>
 }

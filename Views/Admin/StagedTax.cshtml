@@ -1,0 +1,151 @@
+@model Tx9501.Models.ViewModels.StagedTaxViewModel
+@{
+    ViewData["Title"] = "SQLite Staged Tax Records";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header d-flex justify-content-between">
+        <span class="terminal-title">Admin - SQLite Staged Tax Records</span>
+        <span class="terminal-right">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+    </div>
+
+    <div class="terminal-banner d-flex justify-content-between mt-2">
+        <span>
+            <span class="terminal-label">Totals:</span>
+            <span class="terminal-value text-warning">TaxDetails @Model.TotalStagedTaxDetails | TaxAudits @Model.TotalStagedTaxAudits</span>
+        </span>
+        <span>
+            <span class="terminal-label">Rows:</span>
+            <span class="terminal-value text-warning">@Model.FirstRowNumber-@Model.LastRowNumber of @Model.TotalCount</span>
+        </span>
+    </div>
+
+    <form asp-action="StagedTax" asp-controller="Admin" method="get" class="row g-2 align-items-end mt-2 mb-2">
+        <div class="col-sm-2">
+            <label class="terminal-label">Tax Year</label>
+            <input name="taxYear" value="@Model.TaxYearFilter" class="terminal-input" maxlength="4" />
+        </div>
+        <div class="col-sm-3">
+            <label class="terminal-label">Form</label>
+            <select name="form" class="terminal-input">
+                <option value="">All</option>
+                @foreach (var f in Model.AvailableForms)
+                {
+                    if (string.Equals(f, Model.FormFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <option value="@f" selected>@f</option>
+                    }
+                    else
+                    {
+                        <option value="@f">@f</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-sm-2">
+            <label class="terminal-label">Association</label>
+            <select name="assoc" class="terminal-input">
+                <option value="">All</option>
+                @foreach (var a in Model.AvailableAssociations)
+                {
+                    if (string.Equals(a, Model.AssocFilter, StringComparison.OrdinalIgnoreCase))
+                    {
+                        <option value="@a" selected>@a</option>
+                    }
+                    else
+                    {
+                        <option value="@a">@a</option>
+                    }
+                }
+            </select>
+        </div>
+        <div class="col-sm-2">
+            <label class="terminal-label">Page Size</label>
+            <input type="number" name="pageSize" min="10" max="200" value="@Model.PageSize" class="terminal-input" />
+        </div>
+        <div class="col-sm-3 d-flex gap-2">
+            <button type="submit" class="btn-terminal">Apply</button>
+            <a asp-action="StagedTax" asp-controller="Admin" class="btn-terminal btn-exit">Clear</a>
+            <a asp-action="MainMenu" asp-controller="TaxReporting" class="btn-terminal btn-exit">F3=Exit</a>
+        </div>
+        <input type="hidden" name="page" value="1" />
+    </form>
+
+    <div class="table-responsive">
+        <table class="table table-dark table-sm table-striped font-monospace align-middle terminal-table">
+            <thead>
+                <tr>
+                    <th>Year</th>
+                    <th>Form</th>
+                    <th>Assoc</th>
+                    <th>Member</th>
+                    <th>Sub</th>
+                    <th>Name</th>
+                    <th>Err</th>
+                    <th>Rpt</th>
+                    <th>IntPd</th>
+                    <th>Compen</th>
+                    <th>Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+            @if (Model.Rows.Count == 0)
+            {
+                <tr>
+                    <td colspan="11" class="text-warning">No staged SQLite tax rows match the filter.</td>
+                </tr>
+            }
+            else
+            {
+                foreach (var row in Model.Rows)
+                {
+                    <tr>
+                        <td>@row.TaxYear</td>
+                        <td>@row.Form</td>
+                        <td>@row.Asa</td>
+                        <td>@row.MbrNo.ToString("0")</td>
+                        <td>@row.MbrSub</td>
+                        <td>@row.BorrName</td>
+                        <td>@row.Errors</td>
+                        <td>@row.ReportToIrs</td>
+                        <td>@row.IntPd.ToString("N2")</td>
+                        <td>@row.Compen.ToString("N2")</td>
+                        <td>@row.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+
+    @if (Model.TotalPages > 1)
+    {
+        <div class="terminal-banner d-flex justify-content-between mt-2">
+            <span>Page @Model.PageNumber of @Model.TotalPages</span>
+            <span class="d-flex gap-2">
+                @if (Model.HasPreviousPage)
+                {
+                    <a asp-action="StagedTax"
+                       asp-controller="Admin"
+                       asp-route-taxYear="@Model.TaxYearFilter"
+                       asp-route-form="@Model.FormFilter"
+                       asp-route-assoc="@Model.AssocFilter"
+                       asp-route-page="@(Model.PageNumber - 1)"
+                       asp-route-pageSize="@Model.PageSize"
+                       class="btn-terminal">Prev</a>
+                }
+                @if (Model.HasNextPage)
+                {
+                    <a asp-action="StagedTax"
+                       asp-controller="Admin"
+                       asp-route-taxYear="@Model.TaxYearFilter"
+                       asp-route-form="@Model.FormFilter"
+                       asp-route-assoc="@Model.AssocFilter"
+                       asp-route-page="@(Model.PageNumber + 1)"
+                       asp-route-pageSize="@Model.PageSize"
+                       class="btn-terminal">Next</a>
+                }
+            </span>
+        </div>
+    }
+</div>

@@ -60,7 +60,7 @@ public class ExtractController : Controller
             _logger.LogInformation("ExecutePressed detected, scanning for opt_ fields");
             // Scan the posted form for an opt_SEQ field that has a value.
             string? option = null;
-            decimal? seq   = null;
+            long? seq   = null;
 
             foreach (var key in Request.Form.Keys)
             {
@@ -69,7 +69,7 @@ public class ExtractController : Controller
                 _logger.LogInformation("Found opt field: {Key}={Value}", key, raw);
                 if (string.IsNullOrEmpty(raw)) continue;
                 var seqStr = key.Substring(4);
-                if (!decimal.TryParse(seqStr, out var parsedSeq)) 
+                if (!long.TryParse(seqStr, out var parsedSeq)) 
                 {
                     _logger.LogWarning("Failed to parse seq from {Key}", key);
                     continue;
@@ -101,17 +101,6 @@ public class ExtractController : Controller
                     TempData["StatusMessage"] = $"Extract {seq} deleted from SQLite local database.";
                     return RedirectToAction("Index");
 
-                case "4":
-                    await _extractSvc.ClearExtractAsync(vm.TaxYear, seq.Value);
-                    TempData["StatusMessage"] = $"Extract {seq} cleared.";
-                    return RedirectToAction("Index");
-
-                case "D":
-                    // D = Delete all local extracts from SQLite
-                    await _extractSvc.ClearAllLocalExtractsAsync();
-                    TempData["StatusMessage"] = "All local extract records cleared from SQLite database.";
-                    return RedirectToAction("Index");
-
                 case "5":
                     var transmitSuccess = await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
                     if (!transmitSuccess)
@@ -135,20 +124,6 @@ public class ExtractController : Controller
                 case "F":
                     // F6 (Edit): show Define screen to select forms/associations
                     return RedirectToAction("Define", new { year = vm.TaxYear, seq = seq.Value });
-
-                case "Z":
-                    // Z = Force-delete from IBM i (for stuck/test records)
-                    try
-                    {
-                        await _extractSvc.ForceDeleteExtractFromIBMiAsync(vm.TaxYear, seq.Value);
-                        TempData["StatusMessage"] = $"Extract {seq} force-deleted from IBM i.";
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "Force-delete failed for seq {Seq}", seq.Value);
-                        TempData["ErrorMessage"] = $"Force-delete failed: {ex.Message}";
-                    }
-                    return RedirectToAction("Index");
 
                 case "X":
                     var dl = await _extractSvc.DownloadExtractAsync(vm.TaxYear, seq.Value);
@@ -174,7 +149,7 @@ public class ExtractController : Controller
     // ── Define — add/display extract header (TX9560 DEFINE) ──────────────
 
     [HttpGet]
-    public async Task<IActionResult> Define(string year, decimal? seq, bool display = false)
+    public async Task<IActionResult> Define(string year, long? seq, bool display = false)
     {
         ExtractControlRecord? existing = null;
         if (seq.HasValue)
@@ -221,7 +196,7 @@ public class ExtractController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> FileViewer(string year, decimal seq)
+    public async Task<IActionResult> FileViewer(string year, long seq)
     {
         var all = await _extractSvc.ListExtractsAsync(year);
         var existing = all.FirstOrDefault(r => r.ExtSeq == seq);
@@ -259,7 +234,7 @@ public class ExtractController : Controller
     // ── Setup — select forms & associations (TX9562) ──────────────────────
 
     [HttpGet]
-    public async Task<IActionResult> Setup(string year, decimal seq)
+    public async Task<IActionResult> Setup(string year, long seq)
     {
         var ctrl = LoadControl();
         

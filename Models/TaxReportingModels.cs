@@ -112,6 +112,9 @@ public class FormMenuViewModel
     /// <summary>Display info about currently selected associations.</summary>
     public string SelectedAssociationsDisplay { get; set; } = string.Empty;
 
+    /// <summary>True when validation is running in background.</summary>
+    public bool IsValidationRunning { get; set; }
+
     // Action descriptions – mirrors IBM i &D_* CHGVAR assignments
     public string D_Maintain { get; } = "Maintain Tax Records";
     public string D_Edit     { get; } = "Validate Tax Records (check for errors) – select associations";

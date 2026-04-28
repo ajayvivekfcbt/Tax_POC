@@ -49,6 +49,8 @@ public sealed class TaxReportingController : Controller
     private readonly IReportService _reportService;
     private readonly ILogger<TaxReportingController> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IValidationStateService _validationState;
+    private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public TaxReportingController(
         IIBMiService ibmi,
@@ -58,7 +60,9 @@ public sealed class TaxReportingController : Controller
         IValidateTaxService validateTax,
         IReportService reportService,
         ILogger<TaxReportingController> logger,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IValidationStateService validationState,
+        IServiceScopeFactory serviceScopeFactory)
     {
         _ibmi                = ibmi;
         _clearTaxData        = clearTaxData;
@@ -68,6 +72,8 @@ public sealed class TaxReportingController : Controller
         _reportService       = reportService;
         _logger              = logger;
         _httpContextAccessor = httpContextAccessor;
+        _validationState     = validationState;
+        _serviceScopeFactory = serviceScopeFactory;
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -234,6 +240,22 @@ public sealed class TaxReportingController : Controller
             return RedirectToAction(nameof(MainMenu));
         }
 
+        // Get session ID for validation state lookup
+        var sessionId = HttpContext.Session.Id;
+        var validationState = _validationState.GetState(sessionId);
+
+        // If validation just completed, move results to TempData for display
+        if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ResultMessage))
+        {
+            TempData["StatusMessage"] = validationState.ResultMessage;
+            _validationState.ClearValidation(sessionId);
+        }
+        else if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ErrorMessage))
+        {
+            TempData["ErrorMessage"] = validationState.ErrorMessage;
+            _validationState.ClearValidation(sessionId);
+        }
+
         return View(new FormMenuViewModel
         {
             TaxControl      = control,
@@ -246,6 +268,7 @@ public sealed class TaxReportingController : Controller
             StatusMessage   = TempData["StatusMessage"] as string,
             ErrorMessage    = TempData["ErrorMessage"]  as string,
             SelectedAssociationsDisplay = BuildAssociationsDisplay(),
+            IsValidationRunning = validationState.IsRunning,
         });
     }
 
@@ -274,6 +297,16 @@ public sealed class TaxReportingController : Controller
             switch (action?.ToUpperInvariant())
             {
                 case "EDIT":
+                    // Check if validation is already running - prevent starting duplicate validation
+                    var sessionId = HttpContext.Session.Id;
+                    var validationState = _validationState.GetState(sessionId);
+                    if (validationState.IsRunning)
+                    {
+                        // Validation already in progress, return to FormMenu to see progress
+                        TempData["StatusMessage"] = "Validation is already in progress. Please wait for it to complete.";
+                        return RedirectToAction(nameof(FormMenu));
+                    }
+
                     // Redirect to association selection, then come back to ValidateAction
                     return RedirectToAction("Index", "AssociationSelect", new
                     {
@@ -290,6 +323,9 @@ public sealed class TaxReportingController : Controller
                     break;
 
                 case "BUILD":
+                    // Build tax records from all associations by default.
+                    selectedAssociations = new List<string>();
+                    selectAllAssociations = true;
                     await _buildTaxData.BuildAsync(
                         control.TaxYear, formName, selectedAssociations, selectAllAssociations);
                     TempData["StatusMessage"] = "Tax records built in web app and staged in SQLite.";
@@ -344,6 +380,7 @@ public sealed class TaxReportingController : Controller
     [HttpGet]
     public async Task<IActionResult> ValidateAction(string? taxYear, string? formName)
     {
+        // This now starts background validation instead of running it inline
         var control = GetSessionControl();
         var resolvedFormName = HttpContext.Session.GetString(SessionKeyForm);
 
@@ -374,34 +411,89 @@ public sealed class TaxReportingController : Controller
         }
 
         if (control is null || string.IsNullOrEmpty(resolvedFormName))
+        {
+            _logger.LogWarning("ValidateAction: Missing context. Control={Control}, FormName={FormName}", 
+                control?.TaxYear ?? "NULL", resolvedFormName ?? "NULL");
             return RedirectToAction(nameof(MainMenu));
+        }
 
+        // Start background validation task
         var selectedAssociations = GetSelectedAssociationCodes();
         var selectAllAssociations = AreAllAssociationsSelected();
+        var sessionId = HttpContext.Session.Id;
 
-        try
+        // Mark validation as running
+        _validationState.StartValidation(sessionId);
+
+        // Start background task (fire and forget)
+        _ = Task.Run(async () =>
         {
-            // Run validation on selected associations
-            var flaggedCount = await _validateTax.ValidateAsync(
-                control.TaxYear, resolvedFormName, selectedAssociations, selectAllAssociations);
+            // Create a new service scope for the background task
+            using (var scope = _serviceScopeFactory.CreateScope())
+            {
+                try
+                {
+                    _logger.LogInformation("ValidateAction: Background task started. TaxYear={TaxYear}, Form={Form}, SessionId={SessionId}",
+                        control.TaxYear, resolvedFormName, sessionId);
 
-            // Build a user-friendly message showing associations validated
-            var assnMsg = selectAllAssociations 
-                ? "all associations" 
-                : $"associations: {string.Join(", ", selectedAssociations)}";
+                    // Get a new instance of IValidateTaxService with its own scoped context
+                    var validateTaxService = scope.ServiceProvider.GetRequiredService<IValidateTaxService>();
 
-            var completionMsg = $"✓ Validation completed. Tax Year: {control.TaxYear}, Form: {resolvedFormName}, {assnMsg}. " +
-                                $"Result: {flaggedCount} record(s) flagged in error.";
+                    // Create progress reporter that updates state service (thread-safe)
+                    var progress = new Progress<int>(percent =>
+                    {
+                        _validationState.UpdateProgress(sessionId, percent);
+                    });
 
-            TempData["StatusMessage"] = completionMsg;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error during validation for form {Form}", resolvedFormName);
-            TempData["ErrorMessage"] = $"Validation failed: {ex.Message}";
-        }
+                    // Run validation on selected associations with progress reporting
+                    var flaggedCount = await validateTaxService.ValidateAsync(
+                        control.TaxYear, resolvedFormName, selectedAssociations, selectAllAssociations, progress);
 
+                    // Build result message
+                    var assnMsg = selectAllAssociations 
+                        ? "all associations" 
+                        : $"associations: {string.Join(", ", selectedAssociations)}";
+
+                    var completionMsg = $"✓ Validation completed. Tax Year: {control.TaxYear}, Form: {resolvedFormName}, {assnMsg}. " +
+                                        $"Result: {flaggedCount} record(s) flagged in error.";
+
+                    _validationState.CompleteValidation(sessionId, completionMsg);
+                    _logger.LogInformation("ValidateAction: Background task completed successfully. SessionId={SessionId}, Result: {Message}", 
+                        sessionId, completionMsg);
+                }
+                catch (Exception ex)
+                {
+                    // Log full exception chain including inner exceptions
+                    var exceptionChain = BuildExceptionChain(ex);
+                    _logger.LogError(ex, "Error during background validation for form {Form}, SessionId={SessionId}. Exception chain: {ExceptionChain}", 
+                        resolvedFormName, sessionId, exceptionChain);
+                    _validationState.FailValidation(sessionId, $"Validation failed: {ex.Message}\n{BuildExceptionMessage(ex)}");
+                }
+            }
+        });
+
+        // Return to FormMenu immediately (progress bar will show on the page via polling)
         return RedirectToAction(nameof(FormMenu));
+    }
+
+    /// <summary>
+    /// API endpoint to check validation status (for AJAX polling)
+    /// </summary>
+    [HttpGet]
+    [Route("TaxReporting/GetValidationStatus")]
+    public IActionResult GetValidationStatus()
+    {
+        var sessionId = HttpContext.Session.Id;
+        var state = _validationState.GetState(sessionId);
+
+        return Json(new
+        {
+            isRunning = state.IsRunning,
+            progress = state.Progress,
+            result = state.ResultMessage,
+            error = state.ErrorMessage,
+            timestamp = DateTime.UtcNow
+        });
     }
 
     [HttpGet]
@@ -415,11 +507,10 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            var selectedAssociations = GetSelectedAssociationCodes();
-            var selectAllAssociations = AreAllAssociationsSelected();
+            // Detail report always starts from all associations.
+            var selectedAssociations = new List<string>();
+            var selectAllAssociations = true;
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
-            if (string.IsNullOrEmpty(selectedAssociationFilter))
-                selectedAssociationFilter = "S01";
 
             if (!string.IsNullOrEmpty(selectedAssociationFilter))
             {
@@ -436,6 +527,18 @@ public sealed class TaxReportingController : Controller
                 ReportPageSize,
                 TaxDetailListMode.Detail);
 
+            // Get ALL distinct associations from both IBM i and SQLite, not just current page
+            var allAvailableAssociations = await _reportService.GetDistinctAssociationsAsync(
+                control.TaxYear,
+                formName,
+                new List<string>(),
+                selectAll: true,
+                TaxDetailListMode.Detail);
+
+            var availableAssociationFilters = BuildAvailableAssociationFilters(
+                allAvailableAssociations,
+                selectedAssociationFilter);
+
             return View(BuildPagedTaxDetailViewModel(
                 control.TaxYear,
                 formName,
@@ -443,7 +546,7 @@ public sealed class TaxReportingController : Controller
                 "TX9530",
                 paged,
                 selectedAssociationFilter,
-                Array.Empty<string>()));
+                availableAssociationFilters));
         }
         catch (Exception ex)
         {
@@ -456,7 +559,11 @@ public sealed class TaxReportingController : Controller
     [HttpGet]
     public async Task<IActionResult> DownloadDetailReport(string? assoc = null)
     {
-        return await DownloadReportCsvAsync(TaxDetailListMode.Detail, "DetailReport", assoc);
+        return await DownloadReportCsvAsync(
+            TaxDetailListMode.Detail,
+            "DetailReport",
+            assoc,
+            useAllAssociations: true);
     }
 
     [HttpGet]
@@ -468,21 +575,41 @@ public sealed class TaxReportingController : Controller
         if (control is null || string.IsNullOrEmpty(formName))
             return Json(Array.Empty<string>());
 
-        var reportMode = mode switch
-        {
-            "Error" => TaxDetailListMode.Error,
-            "Exclusion" => TaxDetailListMode.Exclusion,
-            _ => TaxDetailListMode.Detail
-        };
-
-        var sessionAssociations = GetSelectedAssociationCodes();
-        var sessionSelectAll = AreAllAssociationsSelected();
-
         try
         {
-            var allAssociations = await _reportService.GetDistinctAssociationsAsync(
-                control.TaxYear, formName, sessionAssociations, sessionSelectAll, reportMode);
-            var options = BuildAvailableAssociationFilters(allAssociations, NormalizeAssociationCode(currentAssoc));
+            IList<string> options;
+
+            // For Error Report, show only associations that have errors
+            if (mode == "Error")
+            {
+                var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
+                    control.TaxYear, formName);
+                options = associationsWithErrors.ToList();
+            }
+            else
+            {
+                var reportMode = mode switch
+                {
+                    "Exclusion" => TaxDetailListMode.Exclusion,
+                    _ => TaxDetailListMode.Detail
+                };
+
+                var sessionAssociations = GetSelectedAssociationCodes();
+                var sessionSelectAll = AreAllAssociationsSelected();
+
+                // Detail and Exclusion filter options should always be based on all associations.
+                if (string.Equals(mode, "Exclusion", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(mode, "Detail", StringComparison.OrdinalIgnoreCase))
+                {
+                    sessionAssociations = new List<string>();
+                    sessionSelectAll = true;
+                }
+
+                var allAssociations = await _reportService.GetDistinctAssociationsAsync(
+                    control.TaxYear, formName, sessionAssociations, sessionSelectAll, reportMode);
+                options = BuildAvailableAssociationFilters(allAssociations, NormalizeAssociationCode(currentAssoc));
+            }
+
             return Json(options);
         }
         catch (Exception ex)
@@ -503,26 +630,32 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            var selectedAssociations = GetSelectedAssociationCodes();
-            var selectAllAssociations = AreAllAssociationsSelected();
+            // Get all associations that have error records
+            var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
+                control.TaxYear, formName);
+
+            var selectedAssociations = associationsWithErrors;
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
-            if (string.IsNullOrEmpty(selectedAssociationFilter))
-                selectedAssociationFilter = "S01";
 
             if (!string.IsNullOrEmpty(selectedAssociationFilter))
             {
                 selectedAssociations = new List<string> { selectedAssociationFilter };
-                selectAllAssociations = false;
             }
 
+            // Show error records from associations that have errors
             var paged = await _reportService.GetDetailReportPageAsync(
                 control.TaxYear,
                 formName,
                 selectedAssociations,
-                selectAllAssociations,
+                selectAll: false,
                 page,
                 ReportPageSize,
                 TaxDetailListMode.Error);
+
+            // Build the available filter options from all associations with errors
+            var availableAssociationFilters = BuildAvailableAssociationFilters(
+                associationsWithErrors,
+                selectedAssociationFilter);
 
             return View(BuildPagedTaxDetailViewModel(
                 control.TaxYear,
@@ -531,7 +664,7 @@ public sealed class TaxReportingController : Controller
                 "TX9532",
                 paged,
                 selectedAssociationFilter,
-                Array.Empty<string>()));
+                availableAssociationFilters));
         }
         catch (Exception ex)
         {
@@ -544,7 +677,43 @@ public sealed class TaxReportingController : Controller
     [HttpGet]
     public async Task<IActionResult> DownloadErrorReport(string? assoc = null)
     {
-        return await DownloadReportCsvAsync(TaxDetailListMode.Error, "ErrorReport", assoc);
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            // Get all associations that have error records
+            var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
+                control.TaxYear, formName);
+
+            var selectedAssociations = associationsWithErrors;
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+            }
+
+            var rows = await GetAllReportRowsAsync(
+                control.TaxYear,
+                formName,
+                selectedAssociations,
+                selectAllAssociations: false,
+                TaxDetailListMode.Error);
+
+            var csvBytes = BuildReportCsv(rows);
+            var fileName = $"{formName.Trim()}_error_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            return File(csvBytes, "text/csv", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting error report for form {Form}", formName);
+            TempData["ErrorMessage"] = $"Unable to export error report: {ex.Message}";
+            return RedirectToAction(nameof(ErrorReport));
+        }
     }
 
     [HttpGet]
@@ -558,11 +727,10 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            var selectedAssociations = GetSelectedAssociationCodes();
-            var selectAllAssociations = AreAllAssociationsSelected();
+            // Exclusion report always starts from all associations.
+            var selectedAssociations = new List<string>();
+            var selectAllAssociations = true;
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
-            if (string.IsNullOrEmpty(selectedAssociationFilter))
-                selectedAssociationFilter = "S01";
 
             if (!string.IsNullOrEmpty(selectedAssociationFilter))
             {
@@ -579,6 +747,18 @@ public sealed class TaxReportingController : Controller
                 ReportPageSize,
                 TaxDetailListMode.Exclusion);
 
+            // Get ALL distinct associations from both IBM i and SQLite, not just current page
+            var allAvailableAssociations = await _reportService.GetDistinctAssociationsAsync(
+                control.TaxYear,
+                formName,
+                new List<string>(),
+                selectAll: true,
+                TaxDetailListMode.Exclusion);
+
+            var availableAssociationFilters = BuildAvailableAssociationFilters(
+                allAvailableAssociations,
+                selectedAssociationFilter);
+
             return View(BuildPagedTaxDetailViewModel(
                 control.TaxYear,
                 formName,
@@ -586,7 +766,7 @@ public sealed class TaxReportingController : Controller
                 "TX9531",
                 paged,
                 selectedAssociationFilter,
-                Array.Empty<string>()));
+                availableAssociationFilters));
         }
         catch (Exception ex)
         {
@@ -599,7 +779,11 @@ public sealed class TaxReportingController : Controller
     [HttpGet]
     public async Task<IActionResult> DownloadExclusionReport(string? assoc = null)
     {
-        return await DownloadReportCsvAsync(TaxDetailListMode.Exclusion, "ExclusionReport", assoc);
+        return await DownloadReportCsvAsync(
+            TaxDetailListMode.Exclusion,
+            "ExclusionReport",
+            assoc,
+            useAllAssociations: true);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -773,7 +957,8 @@ public sealed class TaxReportingController : Controller
     private async Task<IActionResult> DownloadReportCsvAsync(
         TaxDetailListMode mode,
         string fallbackAction,
-        string? assoc = null)
+        string? assoc = null,
+        bool useAllAssociations = false)
     {
         var control = GetSessionControl();
         var formName = HttpContext.Session.GetString(SessionKeyForm);
@@ -783,8 +968,10 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            var selectedAssociations = GetSelectedAssociationCodes();
-            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociations = useAllAssociations
+                ? new List<string>()
+                : GetSelectedAssociationCodes();
+            var selectAllAssociations = useAllAssociations || AreAllAssociationsSelected();
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
 
             if (!string.IsNullOrEmpty(selectedAssociationFilter))
@@ -899,5 +1086,57 @@ public sealed class TaxReportingController : Controller
         }
 
         return normalized;
+    }
+
+    /// <summary>
+    /// Builds a detailed exception message including inner exceptions
+    /// </summary>
+    private static string BuildExceptionMessage(Exception? ex)
+    {
+        if (ex is null)
+            return string.Empty;
+
+        var sb = new System.Text.StringBuilder();
+        var current = ex;
+        int level = 0;
+
+        while (current is not null)
+        {
+            var indent = new string(' ', level * 2);
+            sb.AppendLine($"{indent}[{current.GetType().Name}] {current.Message}");
+            
+            if (!string.IsNullOrEmpty(current.StackTrace))
+            {
+                // Only include first line of stack trace in error message
+                var firstStackLine = current.StackTrace.Split('\n').FirstOrDefault()?.Trim();
+                if (firstStackLine is not null)
+                    sb.AppendLine($"{indent}  at: {firstStackLine}");
+            }
+
+            current = current.InnerException;
+            level++;
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Builds a string representation of the full exception chain for logging
+    /// </summary>
+    private static string BuildExceptionChain(Exception? ex)
+    {
+        if (ex is null)
+            return string.Empty;
+
+        var chain = new List<string>();
+        var current = ex;
+
+        while (current is not null)
+        {
+            chain.Add($"{current.GetType().Name}: {current.Message}");
+            current = current.InnerException;
+        }
+
+        return string.Join(" -> ", chain);
     }
 }
