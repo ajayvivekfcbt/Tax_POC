@@ -74,6 +74,7 @@ public class TaxYearAddChangeViewModel
     public string? Description { get; set; }
 
     public bool   IsChange    { get; set; }
+    public bool   ReturnToYearSelect { get; set; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,9 +213,12 @@ public class MaintainRecordViewModel
     public TaxDetailRecord Record      { get; set; } = new();
     public string          Mode        { get; set; } = "ADD";  // "ADD" or "CHANGE"
     public string          FormName    { get; set; } = string.Empty;
+    public string          TaxDescription { get; set; } = string.Empty;
+    public string          TaxStatus   { get; set; } = string.Empty;
     public bool            ExitPressed { get; set; }
     public bool            DeletePressed { get; set; }
-    
+    public bool            ReturnToErrorReport { get; set; }
+
     // Customer info window (CUSTWDW from TX9525FM)
     public string          CustomerIdCode   { get; set; } = string.Empty;  // Taxpayer ID type (S/E)
     public string          CustomerIdNum    { get; set; } = string.Empty;  // Taxpayer ID number

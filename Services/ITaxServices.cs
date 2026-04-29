@@ -55,12 +55,14 @@ public interface IClearTaxDataService
 ///   TX9515 – build/load tax records (tx9515.sqlrpgle)
 ///   TX9540 – build 1099-MISC/NEC from SmartStream (tx9540.sqlrpgle)
 ///   TX951501R / TX951502R / TX9517 – Patronage sub-processes
+/// Current web implementation stages data by reading IBM i TXRDTL rows;
+/// it does not issue direct ODBC program calls to TX9515/TX9540.
 /// </summary>
 public interface IBuildTaxDataService
 {
     /// <summary>
-    /// Trigger the IBM i build program for the given form.
-    /// Calls TX9515 (or TX9540 for 1099-NEC/MISC) via ODBC CALL.
+    /// Stage build-source records for the given form into local SQLite.
+    /// Source rows are read from IBM i TXRDTL (or local fallback if IBM i is unavailable).
     /// </summary>
     Task BuildAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
 }

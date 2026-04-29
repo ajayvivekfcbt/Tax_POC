@@ -24,6 +24,7 @@
 
     <form asp-controller="YearManagement" asp-action="@(isAdd ? "Add" : "Change")" method="post">
         @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="ReturnToYearSelect" />
         <div class="terminal-row">
             <label class="terminal-label">Tax Year</label>
             @if (isAdd)
@@ -52,7 +53,14 @@
 
         <div class="terminal-footer">
             <button type="submit" class="btn-terminal">Enter=Confirm</button>
-            <a asp-action="Index" class="btn-terminal btn-exit">F12=Cancel</a>
+            @if (Model.ReturnToYearSelect)
+            {
+                <a asp-controller="TaxReporting" asp-action="YearSelect" class="btn-terminal btn-exit">F12=Cancel</a>
+            }
+            else
+            {
+                <a asp-action="Index" class="btn-terminal btn-exit">F12=Cancel</a>
+            }
         </div>
     </form>
 </div>

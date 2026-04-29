@@ -94,6 +94,7 @@ public class LocalTaxDetail
     // ── Flags ────────────────────────────────────────────────────────────
     public string   Errors      { get; set; } = string.Empty;
     public string   ReportToIrs { get; set; } = string.Empty;
+    public string   NonRptReason { get; set; } = string.Empty;
     public string   CorrIn      { get; set; } = string.Empty;
     public string   Foreign     { get; set; } = string.Empty;
     public string   ChangeDate  { get; set; } = string.Empty;
@@ -151,7 +152,7 @@ public class LocalTaxDetail
         SsiDn       = r.SsiDn,      SsiDc       = r.SsiDc,
         BorrName    = r.BorrName,   BorrAddr    = r.BorrAddr,  BorrAddrX = r.BorrAddrX,
         BorrCity    = r.BorrCity,   BorrState   = r.BorrState, BorrZip   = r.BorrZip,
-        Errors      = r.Errors,     ReportToIrs = r.ReportToIrs,
+        Errors      = r.Errors,     ReportToIrs = r.ReportToIrs, NonRptReason = r.NonRptReason,
         CorrIn      = r.CorrIn,     Foreign     = r.Foreign,
         ChangeDate  = r.ChangeDate, Dept        = r.Dept,
         IntPd       = r.IntPd,      Points      = r.Points,
@@ -176,7 +177,7 @@ public class LocalTaxDetail
         SsiDn       = SsiDn,      SsiDc       = SsiDc,
         BorrName    = BorrName,   BorrAddr    = BorrAddr,    BorrAddrX = BorrAddrX,
         BorrCity    = BorrCity,   BorrState   = BorrState,   BorrZip   = BorrZip,
-        Errors      = Errors,     ReportToIrs = ReportToIrs,
+        Errors      = Errors,     ReportToIrs = ReportToIrs, NonRptReason = NonRptReason,
         CorrIn      = CorrIn,     Foreign     = Foreign,
         ChangeDate  = ChangeDate, Dept        = Dept,
         IntPd       = IntPd,      Points      = Points,

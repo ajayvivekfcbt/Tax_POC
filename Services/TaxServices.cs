@@ -253,8 +253,8 @@ public sealed class ClearTaxDataService : IClearTaxDataService
 
 /// <summary>
 /// Implements IBuildTaxDataService.
-/// Replaces tx9515.sqlrpgle + tx9540.sqlrpgle.
-/// Delegates the actual processing to the IBM i programs via ODBC CALL.
+/// Stages build-source records from IBM i/local tables for web processing.
+/// IBM i TX9515/TX9540 remain upstream producers of TXRDTL/TXSSAP data.
 /// </summary>
 public sealed class BuildTaxDataService : IBuildTaxDataService
 {
@@ -987,10 +987,30 @@ public sealed class MaintainService : IMaintainService
 
         if (local is not null)
         {
-            return local.ToRecord();
+            var localRecord = local.ToRecord();
+            if (!string.IsNullOrWhiteSpace(localRecord.NonRptReason))
+            {
+                return localRecord;
+            }
+
+            var ibmiRecordForReason = await FetchRecordFromIbmiAsync(
+                taxYear, formName, asa, mbrNo, keyMbrSub);
+
+            if (ibmiRecordForReason is not null && !string.IsNullOrWhiteSpace(ibmiRecordForReason.NonRptReason))
+            {
+                localRecord.NonRptReason = ibmiRecordForReason.NonRptReason;
+            }
+
+            return localRecord;
         }
 
         // ── Step 2: IBM i TXRDTL fallback ─────────────────────────────────
+        return await FetchRecordFromIbmiAsync(taxYear, formName, asa, mbrNo, keyMbrSub);
+    }
+
+    private async Task<TaxDetailRecord?> FetchRecordFromIbmiAsync(
+        string taxYear, string formName, string asa, decimal mbrNo, string keyMbrSub)
+    {
         int taxYearInt;
         if (!int.TryParse(taxYear, out taxYearInt))
         {
@@ -1004,7 +1024,7 @@ public sealed class MaintainService : IMaintainService
 
         var sql = $@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                             SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
-                            WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
+                    WTHHELD,ERRORS,RPT_TO_IRS,NONRPT_RSN,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                             SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                      FROM {_lib}/TXRDTL
                      WHERE TAXYR=? AND FORM=? AND ASA=? AND MBRNO=?";
@@ -1043,7 +1063,7 @@ public sealed class MaintainService : IMaintainService
         {
             _logger.LogError(ex,
                 "Failed to fetch record from IBM i for maintain lookup (TaxYear={TaxYear}, Form={Form}, Asa={Asa}, MbrNo={MbrNo}, MbrSub={MbrSub}).",
-                taxYear, formName, asa, mbrNo, mbrSub);
+                taxYear, formName, asa, mbrNo, keyMbrSub);
         }
 
         return null;
@@ -1109,7 +1129,7 @@ public sealed class MaintainService : IMaintainService
         // IBM i error records
         var sql = $@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                             SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
-                            WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
+                    WTHHELD,ERRORS,RPT_TO_IRS,NONRPT_RSN,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                             SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                      FROM {_lib}/TXRDTL
                      WHERE TAXYR=? AND FORM=? AND ASA=? AND ERRORS='Y'
@@ -1190,7 +1210,7 @@ public sealed class MaintainService : IMaintainService
                           WHERE TAXYR=? AND FORM=? AND ASA=? AND ERRORS='Y'";
         var pageSql = $@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                                 SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
-                                WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
+                        WTHHELD,ERRORS,RPT_TO_IRS,NONRPT_RSN,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                                 SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                          FROM {_lib}/TXRDTL
                          WHERE TAXYR=? AND FORM=? AND ASA=? AND ERRORS='Y'
@@ -1280,22 +1300,23 @@ public sealed class MaintainService : IMaintainService
         LglPay     = r.IsDBNull(20) ? 0 : r.GetDecimal(20),
         Other      = r.IsDBNull(21) ? 0 : r.GetDecimal(21),
         WthHeld    = r.IsDBNull(22) ? 0 : r.GetDecimal(22),
-        Errors     = SafeGetString(r, 23),
-        ReportToIrs = SafeGetString(r, 24),
-        CorrIn     = SafeGetString(r, 25),
-        OrigDate   = SafeGetString(r, 26),   // ORIGDATE  — may be DateTime from ODBC
-        SecSame    = SafeGetString(r, 27),
-        SecAddr    = SafeGetString(r, 28),
-        SecDesc    = SafeGetString(r, 29),
-        SecOther   = SafeGetString(r, 30),
-        SecNum     = r.IsDBNull(31) ? 0 : r.GetDecimal(31),
-        MtgAcqDt  = SafeGetString(r, 32),   // MTGACQDT  — may be DateTime from ODBC
-        UnpPrn    = r.IsDBNull(33) ? 0 : r.GetDecimal(33),
-        FmVal     = r.IsDBNull(34) ? 0 : r.GetDecimal(34),
-        DteAqr    = SafeGetString(r, 35),    // DTEAQR    — may be DateTime from ODBC
-        PrDesc    = SafeGetString(r, 36),
-        Foreign   = SafeGetString(r, 37),
-        Dept      = r.IsDBNull(38) ? 0 : r.GetDecimal(38),
+        Errors       = SafeGetString(r, 23),
+        ReportToIrs  = SafeGetString(r, 24),
+        NonRptReason = SafeGetString(r, 25),
+        CorrIn       = SafeGetString(r, 26),
+        OrigDate     = SafeGetString(r, 27),   // ORIGDATE  — may be DateTime from ODBC
+        SecSame      = SafeGetString(r, 28),
+        SecAddr      = SafeGetString(r, 29),
+        SecDesc      = SafeGetString(r, 30),
+        SecOther     = SafeGetString(r, 31),
+        SecNum       = r.IsDBNull(32) ? 0 : r.GetDecimal(32),
+        MtgAcqDt     = SafeGetString(r, 33),   // MTGACQDT  — may be DateTime from ODBC
+        UnpPrn       = r.IsDBNull(34) ? 0 : r.GetDecimal(34),
+        FmVal        = r.IsDBNull(35) ? 0 : r.GetDecimal(35),
+        DteAqr       = SafeGetString(r, 36),    // DTEAQR    — may be DateTime from ODBC
+        PrDesc       = SafeGetString(r, 37),
+        Foreign      = SafeGetString(r, 38),
+        Dept         = r.IsDBNull(39) ? 0 : r.GetDecimal(39),
     };
 
     private async Task UpsertLocalTaxDetailAsync(TaxDetailRecord r)

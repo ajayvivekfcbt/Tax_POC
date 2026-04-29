@@ -95,7 +95,7 @@ public class MaintainController : Controller
     // ── MAINTAIN format — view / edit the record ──────────────────────────
 
     [HttpGet]
-    public async Task<IActionResult> Record(string asa, decimal mbrNo, string mbrSub, string mode)
+    public async Task<IActionResult> Record(string asa, decimal mbrNo, string mbrSub, string mode, string? returnTo = null)
     {
         var ctrl = LoadControl();
         if (ctrl is null) return RedirectToAction("YearSelect", "TaxReporting");
@@ -123,9 +123,12 @@ public class MaintainController : Controller
 
         return View(new MaintainRecordViewModel
         {
-            Mode    = mode,
-            Record  = rec,
-            FormName = form
+            Mode                = mode,
+            Record              = rec,
+            FormName            = form,
+            TaxDescription      = ctrl.TaxDescription,
+            TaxStatus           = ctrl.TaxStatus,
+            ReturnToErrorReport = string.Equals(returnTo, "ErrorReport", StringComparison.OrdinalIgnoreCase)
         });
     }
 
@@ -135,6 +138,8 @@ public class MaintainController : Controller
         // Check F12 Cancel FIRST – allow user to cancel regardless of validation
         if (vm.ExitPressed)
         {
+            if (vm.ReturnToErrorReport)
+                return RedirectToAction("ErrorReport", "TaxReporting");
             return RedirectToAction("Select");
         }
 

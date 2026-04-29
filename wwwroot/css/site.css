@@ -242,6 +242,17 @@ body {
 }
 
 /* ── Action / function-key buttons ──────────────────────────────────────── */
+.terminal-link {
+    color: var(--cyan, #22d3ee);
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.terminal-link:hover {
+    color: #ffffff;
+    text-decoration: none;
+}
+
 .btn-terminal {
     background: linear-gradient(135deg, var(--indigo) 0%, var(--blue) 100%);
     color: #ffffff;

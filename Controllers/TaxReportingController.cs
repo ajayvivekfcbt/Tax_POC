@@ -1,4 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
@@ -563,7 +566,17 @@ public sealed class TaxReportingController : Controller
             TaxDetailListMode.Detail,
             "DetailReport",
             assoc,
-            useAllAssociations: true);
+            useAllAssociations: false);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadDetailReportPdf(string? assoc = null)
+    {
+        return await DownloadReportPdfAsync(
+            TaxDetailListMode.Detail,
+            nameof(DetailReport),
+            assoc,
+            useAllAssociations: false);
     }
 
     [HttpGet]
@@ -652,6 +665,8 @@ public sealed class TaxReportingController : Controller
                 ReportPageSize,
                 TaxDetailListMode.Error);
 
+            ApplyErrorDescriptions(paged.Items, formName);
+
             // Build the available filter options from all associations with errors
             var availableAssociationFilters = BuildAvailableAssociationFilters(
                 associationsWithErrors,
@@ -712,6 +727,47 @@ public sealed class TaxReportingController : Controller
         {
             _logger.LogError(ex, "Error exporting error report for form {Form}", formName);
             TempData["ErrorMessage"] = $"Unable to export error report: {ex.Message}";
+            return RedirectToAction(nameof(ErrorReport));
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadErrorReportPdf(string? assoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
+                control.TaxYear, formName);
+
+            var selectedAssociations = associationsWithErrors;
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+            }
+
+            var rows = await GetAllReportRowsAsync(
+                control.TaxYear,
+                formName,
+                selectedAssociations,
+                selectAllAssociations: false,
+                TaxDetailListMode.Error);
+
+            var pdfBytes = BuildReportPdf(rows, control.TaxYear, formName, TaxDetailListMode.Error, selectedAssociationFilter);
+            var fileName = $"{formName.Trim()}_error_{DateTime.UtcNow:yyyyMMdd_HHmmss}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting error report PDF for form {Form}", formName);
+            TempData["ErrorMessage"] = $"Unable to export PDF report: {ex.Message}";
             return RedirectToAction(nameof(ErrorReport));
         }
     }
@@ -780,6 +836,16 @@ public sealed class TaxReportingController : Controller
     public async Task<IActionResult> DownloadExclusionReport(string? assoc = null)
     {
         return await DownloadReportCsvAsync(
+            TaxDetailListMode.Exclusion,
+            "ExclusionReport",
+            assoc,
+            useAllAssociations: true);
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadExclusionReportPdf(string? assoc = null)
+    {
+        return await DownloadReportPdfAsync(
             TaxDetailListMode.Exclusion,
             "ExclusionReport",
             assoc,
@@ -954,6 +1020,88 @@ public sealed class TaxReportingController : Controller
         return normalizedOptions;
     }
 
+    private static void ApplyErrorDescriptions(
+        IEnumerable<Tx9501.Models.Entities.TaxDetailRecord> rows,
+        string formName)
+    {
+        foreach (var row in rows)
+        {
+            if (!string.Equals(row.Errors, "Y", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            var description = BuildErrorDescription(row, formName);
+            row.Errors = string.IsNullOrEmpty(description) ? "Flagged by validation" : description;
+        }
+    }
+
+    private static string BuildErrorDescription(
+        Tx9501.Models.Entities.TaxDetailRecord record,
+        string formName)
+    {
+        var reasons = new List<string>();
+        var normalizedForm = (formName ?? string.Empty).Trim().ToUpperInvariant();
+        var ssiDc = (record.SsiDc ?? string.Empty).Trim().ToUpperInvariant();
+        var reportToIrs = (record.ReportToIrs ?? string.Empty).Trim().ToUpperInvariant();
+        var nonRptReason = (record.NonRptReason ?? string.Empty).Trim();
+        var foreign = string.Equals((record.Foreign ?? string.Empty).Trim(), "Y", StringComparison.OrdinalIgnoreCase);
+
+        if (reportToIrs != "Y" && reportToIrs != "N")
+            reasons.Add("Report-to-IRS must be Y or N");
+
+        if (reportToIrs == "N" && string.IsNullOrWhiteSpace(nonRptReason))
+            reasons.Add("Non-report reason is required when Report-to-IRS is N");
+
+        if (reportToIrs == "Y" && !string.IsNullOrWhiteSpace(nonRptReason))
+            reasons.Add("Non-report reason must be blank when Report-to-IRS is Y");
+
+        if (record.SsiDn <= 0)
+            reasons.Add("Taxpayer ID number is missing");
+
+        if (record.SsiDn is 111111111 or 222222222 or 333333333 or 444444444
+            or 555555555 or 666666666 or 777777777 or 888888888 or 999999999)
+            reasons.Add("Taxpayer ID number is invalid");
+
+        if (ssiDc is not "S" and not "E")
+            reasons.Add("Taxpayer ID type must be S or E");
+
+        if (string.IsNullOrWhiteSpace(record.BorrName))
+            reasons.Add("Borrower name is required");
+
+        if (string.IsNullOrWhiteSpace(record.BorrAddr))
+            reasons.Add("Address is required");
+
+        if (string.IsNullOrWhiteSpace(record.BorrCity))
+            reasons.Add("City is required");
+
+        if (!foreign && string.IsNullOrWhiteSpace(record.BorrState))
+            reasons.Add("State is required for non-foreign address");
+
+        if (!foreign && record.BorrZip <= 0)
+            reasons.Add("ZIP is required for non-foreign address");
+
+        if (normalizedForm == "1098"
+            && (!string.IsNullOrWhiteSpace(record.SecAddr)
+                || !string.IsNullOrWhiteSpace(record.SecDesc)
+                || !string.IsNullOrWhiteSpace(record.SecOther))
+            && record.SecNum <= 0)
+        {
+            reasons.Add("Number of mortgaged properties is required when secured address is provided");
+        }
+
+        if (normalizedForm == "1099-A")
+        {
+            if (string.IsNullOrWhiteSpace(record.DteAqr) || !DateTime.TryParse(record.DteAqr, out _))
+                reasons.Add("Date acquired is invalid for 1099-A");
+
+            if (record.FmVal <= 0 || record.UnpPrn <= 0 || string.IsNullOrWhiteSpace(record.PrDesc))
+                reasons.Add("Fair market value, unpaid principal, and property description are required for 1099-A");
+        }
+
+        return string.Join("; ", reasons.Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
     private async Task<IActionResult> DownloadReportCsvAsync(
         TaxDetailListMode mode,
         string fallbackAction,
@@ -1034,6 +1182,52 @@ public sealed class TaxReportingController : Controller
         return rows;
     }
 
+    private async Task<IActionResult> DownloadReportPdfAsync(
+        TaxDetailListMode mode,
+        string fallbackAction,
+        string? assoc = null,
+        bool useAllAssociations = false)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var selectedAssociations = useAllAssociations
+                ? new List<string>()
+                : GetSelectedAssociationCodes();
+            var selectAllAssociations = useAllAssociations || AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
+            var rows = await GetAllReportRowsAsync(
+                control.TaxYear,
+                formName,
+                selectedAssociations,
+                selectAllAssociations,
+                mode);
+
+            var pdfBytes = BuildReportPdf(rows, control.TaxYear, formName, mode, selectedAssociationFilter);
+            var modeName = mode.ToString().ToLowerInvariant();
+            var fileName = $"{formName.Trim()}_{modeName}_{DateTime.UtcNow:yyyyMMdd_HHmmss}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting {Mode} PDF report for form {Form}", mode, formName);
+            TempData["ErrorMessage"] = $"Unable to export PDF report: {ex.Message}";
+            return RedirectToAction(fallbackAction);
+        }
+    }
+
     private static byte[] BuildReportCsv(IList<Tx9501.Models.Entities.TaxDetailRecord> rows)
     {
         var sb = new StringBuilder();
@@ -1047,7 +1241,7 @@ public sealed class TaxReportingController : Controller
                 row.MbrNo.ToString("0", CultureInfo.InvariantCulture),
                 row.MbrSub,
                 row.SsiDc,
-                row.SsiDn.ToString("0", CultureInfo.InvariantCulture),
+                FormatTaxpayerIdForExport(row.SsiDc, row.SsiDn),
                 row.BorrName,
                 row.BorrAddr,
                 row.BorrAddrX,
@@ -1070,6 +1264,115 @@ public sealed class TaxReportingController : Controller
         }
 
         return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static byte[] BuildReportPdf(
+        IList<Tx9501.Models.Entities.TaxDetailRecord> rows,
+        string taxYear,
+        string formName,
+        TaxDetailListMode mode,
+        string selectedAssociationFilter)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        var modeName = mode.ToString();
+        var assocLabel = string.IsNullOrWhiteSpace(selectedAssociationFilter)
+            ? "All"
+            : selectedAssociationFilter;
+
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.A4.Landscape());
+                page.Margin(1.2f, Unit.Centimetre);
+                page.DefaultTextStyle(t => t.FontSize(8).FontFamily("Courier New"));
+
+                page.Header().Column(header =>
+                {
+                    header.Item().Text($"TX95xx - {modeName} Report").FontSize(12).Bold().FontFamily("Arial");
+                    header.Item().Text($"Tax Year: {taxYear}   Form: {formName}   Association: {assocLabel}   Generated: {DateTime.Now:yyyy-MM-dd HH:mm}")
+                        .FontSize(8)
+                        .FontColor(Colors.Grey.Darken1);
+                    header.Item().PaddingTop(3).LineHorizontal(1).LineColor(Colors.Grey.Darken1);
+                });
+
+                page.Content().PaddingTop(6).Table(table =>
+                {
+                    table.ColumnsDefinition(cols =>
+                    {
+                        cols.RelativeColumn(1.0f); // Assoc
+                        cols.RelativeColumn(1.2f); // Member
+                        cols.RelativeColumn(0.8f); // Sub
+                        cols.RelativeColumn(0.7f); // Type
+                        cols.RelativeColumn(1.4f); // Taxpayer ID
+                        cols.RelativeColumn(2.3f); // Name
+                        cols.RelativeColumn(1.4f); // City
+                        cols.RelativeColumn(0.7f); // State
+                        cols.RelativeColumn(0.8f); // IRS
+                        cols.RelativeColumn(2.6f); // Error
+                    });
+
+                    static IContainer HeaderCell(IContainer c)
+                        => c.Background(Colors.Grey.Darken3).Padding(3).AlignCenter();
+
+                    table.Header(h =>
+                    {
+                        h.Cell().Element(HeaderCell).Text("Assoc").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Member").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Sub").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Type").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Taxpayer ID").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Name").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("City").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("State").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Report").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text("Error").Bold().FontColor(Colors.White);
+                    });
+
+                    bool even = false;
+                    foreach (var row in rows)
+                    {
+                        even = !even;
+                        var bg = even ? Colors.White : Colors.Grey.Lighten4;
+
+                        IContainer Cell(IContainer c) => c.Background(bg).BorderBottom(0.5f).BorderColor(Colors.Grey.Lighten2).Padding(3);
+
+                        table.Cell().Element(Cell).Text(row.Asa ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.MbrNo.ToString("0", CultureInfo.InvariantCulture));
+                        table.Cell().Element(Cell).Text(row.MbrSub ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.SsiDc ?? string.Empty);
+                        table.Cell().Element(Cell).Text(FormatTaxpayerIdForExport(row.SsiDc, row.SsiDn));
+                        table.Cell().Element(Cell).Text(row.BorrName ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.BorrCity ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.BorrState ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.ReportToIrs ?? string.Empty);
+                        table.Cell().Element(Cell).Text(row.Errors ?? string.Empty);
+                    }
+                });
+
+                page.Footer().AlignRight().Text(t =>
+                {
+                    t.Span("Page ").FontSize(8).FontColor(Colors.Grey.Darken1);
+                    t.CurrentPageNumber().FontSize(8).FontColor(Colors.Grey.Darken1);
+                    t.Span(" of ").FontSize(8).FontColor(Colors.Grey.Darken1);
+                    t.TotalPages().FontSize(8).FontColor(Colors.Grey.Darken1);
+                });
+            });
+        }).GeneratePdf();
+    }
+
+    private static string FormatTaxpayerIdForExport(string? taxpayerType, decimal taxpayerId)
+    {
+        var normalizedType = (taxpayerType ?? string.Empty).Trim().ToUpperInvariant();
+        var digits = taxpayerId.ToString("000000000", CultureInfo.InvariantCulture);
+
+        if (normalizedType is "S" or "E")
+        {
+            return $"XXX-XX-{digits[^4..]}";
+        }
+
+        return digits;
     }
 
     private static string EscapeCsv(string? value)

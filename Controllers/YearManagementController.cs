@@ -55,7 +55,8 @@ public class YearManagementController : Controller
     // ── Add ───────────────────────────────────────────────────────────────
 
     [HttpGet]
-    public IActionResult Add() => View(new TaxYearAddChangeViewModel());
+    public IActionResult Add(bool returnToYearSelect = false)
+        => View(new TaxYearAddChangeViewModel { ReturnToYearSelect = returnToYearSelect });
 
     [HttpPost, ValidateAntiForgeryToken]
     public async Task<IActionResult> Add(TaxYearAddChangeViewModel vm)
@@ -63,6 +64,8 @@ public class YearManagementController : Controller
         if (!ModelState.IsValid) return View(vm);
         await _yearSvc.AddYearAsync(vm.TaxYear, vm.Description!);
         TempData["StatusMessage"] = $"Tax year {vm.TaxYear} added.";
+        if (vm.ReturnToYearSelect)
+            return RedirectToAction("YearSelect", "TaxReporting");
         return RedirectToAction("Index");
     }
 

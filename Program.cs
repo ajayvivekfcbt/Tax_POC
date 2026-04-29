@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.EntityFrameworkCore;
+using System.Data;
 using Tx9501.Data;
 using Tx9501.Models;
 using Tx9501.Services;
@@ -82,6 +83,45 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<LocalDbContext>();
     db.Database.EnsureCreated();
+
+    var conn = db.Database.GetDbConnection();
+    var shouldCloseConnection = conn.State != ConnectionState.Open;
+    if (shouldCloseConnection)
+    {
+        conn.Open();
+    }
+
+    try
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA table_info([TaxDetails]);";
+        using var reader = cmd.ExecuteReader();
+        var hasNonRptReasonColumn = false;
+        while (reader.Read())
+        {
+            if (string.Equals(reader[1]?.ToString(), "NonRptReason", StringComparison.OrdinalIgnoreCase))
+            {
+                hasNonRptReasonColumn = true;
+                break;
+            }
+        }
+
+        if (!hasNonRptReasonColumn)
+        {
+            db.Database.ExecuteSqlRaw(@"
+                ALTER TABLE [TaxDetails]
+                ADD COLUMN [NonRptReason] TEXT NOT NULL DEFAULT '';
+            ");
+        }
+    }
+    finally
+    {
+        if (shouldCloseConnection)
+        {
+            conn.Close();
+        }
+    }
+
     db.Database.ExecuteSqlRaw(@"
         CREATE TABLE IF NOT EXISTS [TaxAudits] (
             [Id] INTEGER NOT NULL CONSTRAINT [PK_TaxAudits] PRIMARY KEY AUTOINCREMENT,

@@ -89,6 +89,7 @@
 
     <div class="terminal-footer">
         <a asp-action="DownloadDetailReport" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download Spreadsheet</a>
+        <a asp-action="DownloadDetailReportPdf" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download PDF</a>
         <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
         <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
     </div>
