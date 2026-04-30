@@ -7,6 +7,21 @@ using Tx9501.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Build a full IBM i ODBC string once so all services share the same credentials source.
+var ibmiBaseCs = builder.Configuration.GetConnectionString("IBMi");
+var ibmiUser = builder.Configuration["IBMiCredentials:Username"] ?? string.Empty;
+var ibmiPass = builder.Configuration["IBMiCredentials:Password"] ?? string.Empty;
+if (!string.IsNullOrWhiteSpace(ibmiBaseCs))
+{
+    var hasUid = ibmiBaseCs.Contains("UID=", StringComparison.OrdinalIgnoreCase);
+    var hasPwd = ibmiBaseCs.Contains("PWD=", StringComparison.OrdinalIgnoreCase);
+    if (!hasUid || !hasPwd)
+    {
+        builder.Configuration["ConnectionStrings:IBMi"] =
+            $"{ibmiBaseCs.TrimEnd(';')};UID={ibmiUser};PWD={ibmiPass}";
+    }
+}
+
 builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(options =>
 {

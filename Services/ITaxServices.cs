@@ -149,6 +149,15 @@ public interface IReportService
 
     /// <summary>Print non-1098 interest letters (calls TX9591R).</summary>
     Task PrintLettersAsync(string taxYear, IEnumerable<string> associations, bool selectAll);
+
+    /// <summary>
+    /// Return letter candidates using TX9591R web rules:
+    /// form 1098, report flag N, and interest paid greater than zero.
+    /// </summary>
+    Task<IList<TaxDetailRecord>> GetLetterCandidatesAsync(string taxYear, IEnumerable<string> associations, bool selectAll);
+
+    /// <summary>Return a paged set of TX9591R web letter candidates.</summary>
+    Task<PagedResult<TaxDetailRecord>> GetLetterCandidatesPageAsync(string taxYear, IEnumerable<string> associations, bool selectAll, int pageNumber, int pageSize);
 }
 
 /// <summary>
@@ -184,8 +193,8 @@ public interface IExtractService
     Task BuildIrsFileAsync(string taxYear, long extSeq, IEnumerable<string> forms,
                            IEnumerable<string> associations);
 
-    /// <summary>Transmit the extract file to the print vendor (TX9565R / BB1220). Returns true if file exists and transmit was attempted, false if file not found.</summary>
-    Task<bool> TransmitExtractAsync(string taxYear, long extSeq);
+    /// <summary>Transmit the extract file to the print vendor (TX9565R / BB1220) and return execution details.</summary>
+    Task<TransmitExtractResult> TransmitExtractAsync(string taxYear, long extSeq);
 
     /// <summary>Return the record count for a completed extract.</summary>
     Task<long> GetExtractRecordCountAsync(string taxYear, long extSeq);
@@ -195,4 +204,12 @@ public interface IExtractService
 
     /// <summary>Get available associations for the tax year that have tax detail records.</summary>
     Task<IList<AssociationRow>> GetAvailableAssociationsAsync(string taxYear);
+}
+
+public sealed class TransmitExtractResult
+{
+    public bool Success { get; set; }
+    public bool FileFound { get; set; }
+    public bool DirectProgramCallFailed { get; set; }
+    public bool SshFallbackAttempted { get; set; }
 }

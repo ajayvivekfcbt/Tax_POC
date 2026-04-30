@@ -1,0 +1,127 @@
+@model Tx9501.Models.ViewModels.ExtractCreateViewModel
+@{
+    ViewData["Title"] = "New Extract";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header">
+        <span class="terminal-title">TX9560 - DEFINE</span>
+        <span class="terminal-right">Tax Year: @Model.TaxYear</span>
+    </div>
+
+    @if (TempData["StatusMessage"] is string statusMessage && !string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="terminal-message">@statusMessage</div>
+    }
+    @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
+    {
+        <div class="terminal-error">@errorMessage</div>
+    }
+    @if (!ViewData.ModelState.IsValid)
+    {
+        <div asp-validation-summary="All" class="terminal-error"></div>
+    }
+
+    <form asp-controller="Extract" asp-action="Create" method="post">
+        @Html.AntiForgeryToken()
+        <input type="hidden" asp-for="TaxYear" />
+        <input type="hidden" asp-for="NextExtSeq" />
+        <input type="hidden" asp-for="ExtractedAtDisplay" />
+        <input type="hidden" asp-for="TransmitterName" />
+        <input type="hidden" asp-for="CompanyName" />
+        <input type="hidden" asp-for="CompanyName2" />
+        <input type="hidden" asp-for="MailAddress" />
+        <input type="hidden" asp-for="MailCity" />
+        <input type="hidden" asp-for="MailState" />
+        <input type="hidden" asp-for="MailZip" />
+        <input type="hidden" asp-for="ContactName" />
+        <input type="hidden" asp-for="ContactPhone" />
+        <input type="hidden" asp-for="ContactEmail" />
+        <input type="hidden" asp-for="TaxId" />
+        <input type="hidden" asp-for="ControlCode" />
+
+        <div class="terminal-row">
+            <span class="terminal-label">Extract Seq.</span>
+            <span class="terminal-value">@Model.NextExtSeq.ToString("00000")</span>
+        </div>
+
+        <div class="terminal-row">
+            <label class="terminal-label" asp-for="Description">Description.</label>
+            <input asp-for="Description" class="terminal-input input-lg" maxlength="40" autofocus />
+            <span asp-validation-for="Description" class="terminal-error"></span>
+        </div>
+
+        <div class="terminal-row">
+            <label class="terminal-label" asp-for="SelectDate">Select Date.</label>
+            <input asp-for="SelectDate" class="terminal-input input-sm" type="date" />
+            <span class="terminal-value" style="margin-left:1rem;">(Selects changes >= to this date)</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Extracted...</span>
+            <span class="terminal-value">@Model.ExtractedAtDisplay</span>
+        </div>
+
+        <hr />
+
+        <div class="terminal-row">
+            <span class="terminal-label">Transmitter.</span>
+            <span class="terminal-value">@Model.TransmitterName</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Tax ID....</span>
+            <span class="terminal-value">@Model.TaxId</span>
+            <span class="terminal-value" style="margin-left:2rem;">Control Code: @Model.ControlCode</span>
+            <span class="terminal-value" style="margin-left:2rem;">Media Number:</span>
+            <input asp-for="MediaNumber" class="terminal-input input-sm" style="width:8rem;margin-left:.5rem;" maxlength="10" />
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Company Name</span>
+            <span class="terminal-value">@Model.CompanyName</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Mail Address</span>
+            <span class="terminal-value">@Model.MailAddress</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Mail City...</span>
+            <span class="terminal-value">@Model.MailCity</span>
+            <span class="terminal-value" style="margin-left:2rem;">St: @Model.MailState</span>
+            <span class="terminal-value" style="margin-left:1rem;">Zip: @Model.MailZip</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Contact Name</span>
+            <span class="terminal-value">@Model.ContactName</span>
+            <span class="terminal-value" style="margin-left:2rem;">Phone: @Model.ContactPhone</span>
+        </div>
+
+        <div class="terminal-row">
+            <span class="terminal-label">Contact Email</span>
+            <span class="terminal-value">@Model.ContactEmail</span>
+        </div>
+
+        <div class="terminal-row">
+            <label class="terminal-label" asp-for="ReplaceCode">Replace Code</label>
+            <input asp-for="ReplaceCode" class="terminal-input input-sm" style="width:4rem;" maxlength="2" />
+
+            <label class="terminal-label" asp-for="ReplaceFile" style="margin-left:2rem;">Replace File</label>
+            <input asp-for="ReplaceFile" class="terminal-input input-md" style="width:16rem;" maxlength="30" />
+
+            <label class="terminal-label" asp-for="TestFile" style="margin-left:2rem;">Test File</label>
+            <input asp-for="TestFile" class="terminal-input input-sm" style="width:3rem;" maxlength="1" />
+
+            <label class="terminal-label" asp-for="PriorYear" style="margin-left:1rem;">Prior Year?</label>
+            <input asp-for="PriorYear" class="terminal-input input-sm" style="width:3rem;" maxlength="1" />
+        </div>
+
+        <div class="terminal-footer">
+            <button type="submit" class="btn-terminal">Enter=Save</button>
+            <button type="submit" name="CancelPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
+        </div>
+    </form>
+</div>

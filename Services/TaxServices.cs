@@ -282,9 +282,11 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
             .ToList();
 
         var sourceRows = new List<TaxDetailRecord>();
+        var sourceLoadedFromIbmi = false;
         try
         {
             sourceRows = await QueryBuildSourceFromIbmiAsync(taxYear, formName, assocList, selectAll);
+            sourceLoadedFromIbmi = true;
         }
         catch (OdbcException ex)
         {
@@ -294,11 +296,68 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
             sourceRows = await QueryBuildSourceFromLocalAsync(taxYear, formName, assocList, selectAll);
         }
 
+        if (sourceLoadedFromIbmi)
+        {
+            await RemoveStaleLocalTaxDetailsAsync(taxYear, formName, assocList, selectAll, sourceRows);
+        }
+
         // Batch process all rows at once instead of one-by-one
         await BatchUpsertLocalTaxDetailsAsync(sourceRows);
 
         _logger.LogInformation("Web-side BUILD completed for year {TaxYear}, form {FormName}. Rows staged: {Count}",
             taxYear, formName, sourceRows.Count);
+    }
+
+    private async Task RemoveStaleLocalTaxDetailsAsync(
+        string taxYear,
+        string formName,
+        IList<string> associations,
+        bool selectAll,
+        List<TaxDetailRecord> sourceRows)
+    {
+        var normalizedTaxYear = NormalizeBuildKey(taxYear);
+        var normalizedForm = NormalizeBuildKey(formName);
+
+        var scopedQuery = _db.TaxDetails
+            .Where(d => d.TaxYear == normalizedTaxYear && d.Form == normalizedForm);
+
+        if (!selectAll && associations.Count > 0)
+        {
+            scopedQuery = scopedQuery.Where(d => associations.Contains(d.Asa));
+        }
+
+        var existingScopedRows = await scopedQuery.ToListAsync();
+
+        if (existingScopedRows.Count == 0)
+        {
+            return;
+        }
+
+        var sourceKeySet = sourceRows
+            .Select(r =>
+            {
+                var normalized = NormalizeRecordForLocal(r);
+                return (normalized.TaxYear, normalized.Form, normalized.Asa, normalized.MbrNo, normalized.MbrSub);
+            })
+            .ToHashSet();
+
+        var staleRows = existingScopedRows
+            .Where(d => !sourceKeySet.Contains((d.TaxYear, d.Form, d.Asa, d.MbrNo, d.MbrSub)))
+            .ToList();
+
+        if (staleRows.Count == 0)
+        {
+            return;
+        }
+
+        _db.TaxDetails.RemoveRange(staleRows);
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "BUILD true-refresh removed {Count} stale local rows for year {TaxYear}, form {FormName}.",
+            staleRows.Count,
+            taxYear,
+            formName);
     }
 
     private async Task<List<TaxDetailRecord>> QueryBuildSourceFromIbmiAsync(
@@ -660,13 +719,7 @@ public sealed class ValidateTaxService : IValidateTaxService
         try
         {
             var ibmiRows = await QueryIbmiAsync(taxYear, formName, associations, selectAll);
-            var merged = ibmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
-            foreach (var local in localRows)
-            {
-                merged[GetDetailKey(local)] = local;
-            }
-
-            return merged.Values.ToList();
+            return MergeCandidateRows(ibmiRows, localRows);
         }
         catch (OdbcException ex)
         {
@@ -823,6 +876,7 @@ public sealed class ValidateTaxService : IValidateTaxService
         local.BorrState = NormalizeText(local.BorrState);
         local.Errors = NormalizeText(local.Errors);
         local.ReportToIrs = NormalizeText(local.ReportToIrs);
+        local.NonRptReason = NormalizeText(local.NonRptReason);
         local.CorrIn = NormalizeText(local.CorrIn);
         local.Foreign = NormalizeText(local.Foreign);
         local.ChangeDate = NormalizeText(local.ChangeDate);
@@ -839,7 +893,31 @@ public sealed class ValidateTaxService : IValidateTaxService
     }
 
     private static string GetDetailKey(TaxDetailRecord record)
-        => $"{NormalizeText(record.TaxYear)}|{NormalizeText(record.Form)}|{NormalizeText(record.Asa)}|{record.MbrNo}|{NormalizeText(record.MbrSub)}";
+    {
+        var normalizedMbrNo = ((long)record.MbrNo).ToString();
+        return $"{NormalizeText(record.TaxYear)}|{NormalizeText(record.Form)}|{NormalizeText(record.Asa)}|{normalizedMbrNo}|{NormalizeText(record.MbrSub)}";
+    }
+
+    public static List<TaxDetailRecord> MergeCandidateRows(
+        IEnumerable<TaxDetailRecord> ibmiRows,
+        IEnumerable<TaxDetailRecord> localRows)
+    {
+        var merged = ibmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
+        foreach (var local in localRows)
+        {
+            var key = GetDetailKey(local);
+            if (merged.TryGetValue(key, out var ibmi)
+                && string.IsNullOrWhiteSpace(local.NonRptReason)
+                && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
+            {
+                local.NonRptReason = ibmi.NonRptReason;
+            }
+
+            merged[key] = local;
+        }
+
+        return merged.Values.ToList();
+    }
 
     private static string NormalizeText(string? value) => (value ?? string.Empty).Trim();
 
@@ -1116,11 +1194,14 @@ public sealed class MaintainService : IMaintainService
         string taxYear, string formName, string asa)
     {
         var rows = new List<TaxDetailRecord>();
+        var normalizedTaxYear = NormalizeKey(taxYear);
+        var normalizedForm = NormalizeKey(formName);
+        var normalizedAsa = NormalizeKey(asa);
 
         // SQLite local error records
         var localErrors = await _db.TaxDetails
-            .Where(d => d.TaxYear == taxYear && d.Form == formName &&
-                        d.Asa == asa && d.Errors == "Y")
+            .Where(d => d.TaxYear == normalizedTaxYear && d.Form == normalizedForm &&
+                        d.Asa == normalizedAsa && d.Errors == "Y")
             .ToListAsync();
         rows.AddRange(localErrors
             .OrderBy(d => d.MbrNo)
@@ -1410,6 +1491,7 @@ public sealed class MaintainService : IMaintainService
         local.BorrState = NormalizeKey(local.BorrState);
         local.Errors = NormalizeKey(local.Errors);
         local.ReportToIrs = NormalizeKey(local.ReportToIrs);
+        local.NonRptReason = NormalizeKey(local.NonRptReason);
         local.CorrIn = NormalizeKey(local.CorrIn);
         local.Foreign = NormalizeKey(local.Foreign);
         local.ChangeDate = NormalizeKey(local.ChangeDate);
@@ -1621,7 +1703,15 @@ public sealed class ReportService : IReportService
             var merged = ibmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
             foreach (var local in localRows)
             {
-                merged[GetDetailKey(local)] = local;
+                var key = GetDetailKey(local);
+                if (merged.TryGetValue(key, out var ibmi)
+                    && string.IsNullOrWhiteSpace(local.NonRptReason)
+                    && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
+                {
+                    local.NonRptReason = ibmi.NonRptReason;
+                }
+
+                merged[key] = local;
             }
 
             return merged.Values
@@ -1682,7 +1772,15 @@ public sealed class ReportService : IReportService
                 var merged = ibmiErrorRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
                 foreach (var local in localErrorRows)
                 {
-                    merged[GetDetailKey(local)] = local;
+                    var key = GetDetailKey(local);
+                    if (merged.TryGetValue(key, out var ibmi)
+                        && string.IsNullOrWhiteSpace(local.NonRptReason)
+                        && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
+                    {
+                        local.NonRptReason = ibmi.NonRptReason;
+                    }
+
+                    merged[key] = local;
                 }
 
                 // Final ordering: latest local first, then by key
@@ -1736,7 +1834,15 @@ public sealed class ReportService : IReportService
             var merged = filteredIbmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
             foreach (var local in localRows)
             {
-                merged[GetDetailKey(local)] = local;
+                var key = GetDetailKey(local);
+                if (merged.TryGetValue(key, out var ibmi)
+                    && string.IsNullOrWhiteSpace(local.NonRptReason)
+                    && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
+                {
+                    local.NonRptReason = ibmi.NonRptReason;
+                }
+
+                merged[key] = local;
             }
 
             var orderedRows = merged.Values
@@ -1954,6 +2060,75 @@ public sealed class ReportService : IReportService
         }
     }
 
+    public async Task<IList<TaxDetailRecord>> GetLetterCandidatesAsync(
+        string taxYear, IEnumerable<string> associations, bool selectAll)
+    {
+        var assocList = associations
+            .Select(a => a.Trim())
+            .Where(a => a.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        const string letterForm = "1098";
+        var localRows = ApplyLetterRules(await QueryLocalAsync(taxYear, letterForm, assocList, selectAll));
+
+        try
+        {
+            var ibmiRows = ApplyLetterRules(await QueryIbmiAsync(taxYear, letterForm, assocList, selectAll));
+            var merged = ibmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
+
+            foreach (var local in localRows)
+            {
+                var key = GetDetailKey(local);
+                if (merged.TryGetValue(key, out var ibmi)
+                    && string.IsNullOrWhiteSpace(local.NonRptReason)
+                    && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
+                {
+                    local.NonRptReason = ibmi.NonRptReason;
+                }
+
+                merged[key] = local;
+            }
+
+            return merged.Values
+                .OrderBy(r => r.Asa)
+                .ThenBy(r => r.MbrNo)
+                .ThenBy(r => r.MbrSub)
+                .ToList();
+        }
+        catch (OdbcException ex)
+        {
+            _logger.LogWarning(ex,
+                "IBM i letter-candidate source unavailable for {TaxYear}; using SQLite rows.",
+                taxYear);
+
+            return localRows
+                .OrderBy(r => r.Asa)
+                .ThenBy(r => r.MbrNo)
+                .ThenBy(r => r.MbrSub)
+                .ToList();
+        }
+    }
+
+    public async Task<PagedResult<TaxDetailRecord>> GetLetterCandidatesPageAsync(
+        string taxYear, IEnumerable<string> associations, bool selectAll, int pageNumber, int pageSize)
+    {
+        pageNumber = Math.Max(1, pageNumber);
+        pageSize = Math.Max(1, pageSize);
+
+        var rows = await GetLetterCandidatesAsync(taxYear, associations, selectAll);
+        return new PagedResult<TaxDetailRecord>
+        {
+            Items = rows
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToList(),
+            PageNumber = pageNumber,
+            PageSize = pageSize,
+            TotalCount = rows.Count
+        };
+    }
+
     private async Task CallAsync(string pgm, string taxYear, string formName,
                                   IEnumerable<string> associations, bool selectAll)
     {
@@ -1972,7 +2147,7 @@ public sealed class ReportService : IReportService
 
         var sql = new System.Text.StringBuilder($@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                             SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
-                            WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
+                    WTHHELD,ERRORS,RPT_TO_IRS,NONRPT_RSN,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                             SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                      FROM {_lib}/TXRDTL
                      WHERE TAXYR=? AND FORM=?");
@@ -2045,6 +2220,17 @@ public sealed class ReportService : IReportService
             _ => rows.ToList()
         };
 
+    private static List<TaxDetailRecord> ApplyLetterRules(IEnumerable<TaxDetailRecord> rows)
+    {
+        // Mirrors the web replication of TX9591R selection intent:
+        // only non-reported 1098 rows with positive interest paid.
+        return rows
+            .Where(d => string.Equals(d.Form?.Trim(), "1098", StringComparison.OrdinalIgnoreCase))
+            .Where(d => string.Equals(d.ReportToIrs?.Trim(), "N", StringComparison.OrdinalIgnoreCase))
+            .Where(d => d.IntPd > 0)
+            .ToList();
+    }
+
     private async Task<PagedResult<TaxDetailRecord>> QueryIbmiReportPageAsync(
         string taxYear, string formName, IList<string> associations, bool selectAll,
         int pageNumber, int pageSize, TaxDetailListMode mode)
@@ -2078,7 +2264,7 @@ public sealed class ReportService : IReportService
 
         var pageSql = $@"SELECT TAXYR,FORM,ASA,MBRNO,MBRSUB,SSIDN,BNM,BAD,BADX,BCTY,BST,BZP,
                                 SSIDC,INTPD,POINTS,INTERN,ERNWTH,COMPEN,RENTS,MEDPAY,LGLPAY,OTHER,
-                                WTHHELD,ERRORS,RPT_TO_IRS,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
+                        WTHHELD,ERRORS,RPT_TO_IRS,NONRPT_RSN,CORRIN,ORIGDATE,SECSAME,SECADDR,SECDESC,
                                 SECOTHER,SECNUM,MTGACQDT,UNPPRN,FMVAL,DTEAQR,PRDESC,FOREGN,DEPT
                          FROM {_lib}/TXRDTL
                          WHERE TAXYR=? AND FORM=?{assocClause}{filterClause}
@@ -2159,20 +2345,21 @@ public sealed class ReportService : IReportService
         WthHeld    = r.IsDBNull(22) ? 0 : r.GetDecimal(22),
         Errors     = SafeReportString(r, 23),
         ReportToIrs = SafeReportString(r, 24),
-        CorrIn     = SafeReportString(r, 25),
-        OrigDate   = SafeReportString(r, 26),
-        SecSame    = SafeReportString(r, 27),
-        SecAddr    = SafeReportString(r, 28),
-        SecDesc    = SafeReportString(r, 29),
-        SecOther   = SafeReportString(r, 30),
-        SecNum     = r.IsDBNull(31) ? 0 : r.GetDecimal(31),
-        MtgAcqDt   = SafeReportString(r, 32),
-        UnpPrn     = r.IsDBNull(33) ? 0 : r.GetDecimal(33),
-        FmVal      = r.IsDBNull(34) ? 0 : r.GetDecimal(34),
-        DteAqr     = SafeReportString(r, 35),
-        PrDesc     = SafeReportString(r, 36),
-        Foreign    = SafeReportString(r, 37),
-        Dept       = r.IsDBNull(38) ? 0 : r.GetDecimal(38),
+        NonRptReason = SafeReportString(r, 25),
+        CorrIn     = SafeReportString(r, 26),
+        OrigDate   = SafeReportString(r, 27),
+        SecSame    = SafeReportString(r, 28),
+        SecAddr    = SafeReportString(r, 29),
+        SecDesc    = SafeReportString(r, 30),
+        SecOther   = SafeReportString(r, 31),
+        SecNum     = r.IsDBNull(32) ? 0 : r.GetDecimal(32),
+        MtgAcqDt   = SafeReportString(r, 33),
+        UnpPrn     = r.IsDBNull(34) ? 0 : r.GetDecimal(34),
+        FmVal      = r.IsDBNull(35) ? 0 : r.GetDecimal(35),
+        DteAqr     = SafeReportString(r, 36),
+        PrDesc     = SafeReportString(r, 37),
+        Foreign    = SafeReportString(r, 38),
+        Dept       = r.IsDBNull(39) ? 0 : r.GetDecimal(39),
     };
 
     private static string SafeReportString(System.Data.Common.DbDataReader r, int col)
@@ -2184,7 +2371,10 @@ public sealed class ReportService : IReportService
     }
 
     private static string GetDetailKey(TaxDetailRecord record)
-        => $"{NormalizeReportText(record.TaxYear)}|{NormalizeReportText(record.Form)}|{NormalizeReportText(record.Asa)}|{record.MbrNo}|{NormalizeReportText(record.MbrSub)}";
+    {
+        var normalizedMbrNo = ((long)record.MbrNo).ToString();
+        return $"{NormalizeReportText(record.TaxYear)}|{NormalizeReportText(record.Form)}|{NormalizeReportText(record.Asa)}|{normalizedMbrNo}|{NormalizeReportText(record.MbrSub)}";
+    }
 
     private static string NormalizeReportText(string? value) => (value ?? string.Empty).Trim();
 
@@ -2240,8 +2430,9 @@ public sealed class ExtractService : IExtractService
         _goAnywhereEnabled = bool.TryParse(cfg["GoAnywhere:Enabled"], out var enabled) && enabled;
         _goAnywhereExePath = cfg["GoAnywhere:ExecutablePath"] ?? "TODO_ADD_GOANYWHERE_EXE_PATH";
         _goAnywhereProjectPath = cfg["GoAnywhere:ProjectPath"] ?? string.Empty;
-        _goAnywhereUsername = cfg["GoAnywhere:Username"] ?? string.Empty;
-        _goAnywherePassword = cfg["GoAnywhere:Password"] ?? string.Empty;
+        // Credentials come from the single IBMiCredentials section; GoAnywhere uses the same account.
+        _goAnywhereUsername = cfg["IBMiCredentials:Username"] ?? cfg["GoAnywhere:Username"] ?? string.Empty;
+        _goAnywherePassword = cfg["IBMiCredentials:Password"] ?? cfg["GoAnywhere:Password"] ?? string.Empty;
         _goAnywhereHost = cfg["GoAnywhere:Host"] ?? "dev";
         _goAnywhereExecuteOnIBMi = bool.TryParse(cfg["GoAnywhere:ExecuteOnIBMi"], out var execOnIbmi) && execOnIbmi;
         
@@ -3289,7 +3480,10 @@ public sealed class ExtractService : IExtractService
     }
 
     private static string GetExtractKey(TaxDetailRecord record)
-        => $"{record.TaxYear.Trim()}|{record.Form.Trim()}|{record.Asa.Trim()}|{record.MbrNo}|{record.MbrSub.Trim()}";
+    {
+        var normalizedMbrNo = ((long)record.MbrNo).ToString();
+        return $"{record.TaxYear.Trim()}|{record.Form.Trim()}|{record.Asa.Trim()}|{normalizedMbrNo}|{record.MbrSub.Trim()}";
+    }
 
     private static string Clean(string? value)
         => (value ?? string.Empty).Replace("|", " ").Replace("\r", " ").Replace("\n", " ").Trim();
@@ -3312,7 +3506,13 @@ public sealed class ExtractService : IExtractService
         };
     }
 
-    public async Task<bool> TransmitExtractAsync(string taxYear, long extSeq)
+    private sealed class GoAnywhereTransmitOutcome
+    {
+        public bool DirectProgramCallFailed { get; set; }
+        public bool SshFallbackAttempted { get; set; }
+    }
+
+    public async Task<TransmitExtractResult> TransmitExtractAsync(string taxYear, long extSeq)
     {
         var filePath = GetExtractFilePath(taxYear, extSeq);
         if (!File.Exists(filePath))
@@ -3320,13 +3520,23 @@ public sealed class ExtractService : IExtractService
             _logger.LogError(
                 "Transmit requested but extract file not found. TaxYear={TaxYear}, ExtSeq={ExtSeq}, FilePath={FilePath}",
                 taxYear, extSeq, filePath);
-            return false;
+            return new TransmitExtractResult
+            {
+                Success = false,
+                FileFound = false
+            };
         }
 
         if (_tx9565rUnavailable)
         {
-            await TryRunGoAnywhereWithLocalExtractAsync(taxYear, extSeq);
-            return true;
+            var fallbackOutcome = await TryRunGoAnywhereWithLocalExtractAsync(taxYear, extSeq);
+            return new TransmitExtractResult
+            {
+                Success = true,
+                FileFound = true,
+                DirectProgramCallFailed = fallbackOutcome.DirectProgramCallFailed,
+                SshFallbackAttempted = fallbackOutcome.SshFallbackAttempted
+            };
         }
 
         var ctrl = new Models.TaxControlRecord { TaxYear = taxYear }.ToControlString();
@@ -3346,14 +3556,22 @@ public sealed class ExtractService : IExtractService
         }
 #pragma warning restore CS0168
 
-        await TryRunGoAnywhereWithLocalExtractAsync(taxYear, extSeq);
-        return true;
+        var goAnywhereOutcome = await TryRunGoAnywhereWithLocalExtractAsync(taxYear, extSeq);
+        return new TransmitExtractResult
+        {
+            Success = true,
+            FileFound = true,
+            DirectProgramCallFailed = goAnywhereOutcome.DirectProgramCallFailed,
+            SshFallbackAttempted = goAnywhereOutcome.SshFallbackAttempted
+        };
     }
 
-    private async Task TryRunGoAnywhereWithLocalExtractAsync(string taxYear, long extSeq)
+    private async Task<GoAnywhereTransmitOutcome> TryRunGoAnywhereWithLocalExtractAsync(string taxYear, long extSeq)
     {
+        var outcome = new GoAnywhereTransmitOutcome();
+
         if (!_goAnywhereEnabled)
-            return;
+            return outcome;
 
         var localFilePath = GetExtractFilePath(taxYear, extSeq);
         if (!File.Exists(localFilePath))
@@ -3361,7 +3579,7 @@ public sealed class ExtractService : IExtractService
             _logger.LogError(
                 "GoAnywhere transmit failed—local extract file not found. TaxYear={TaxYear}, ExtSeq={ExtSeq}, FilePath={FilePath}",
                 taxYear, extSeq, localFilePath);
-            return;
+            return outcome;
         }
 
         if (string.IsNullOrWhiteSpace(_goAnywhereExePath)
@@ -3370,14 +3588,14 @@ public sealed class ExtractService : IExtractService
             _logger.LogError(
                 "GoAnywhere transmit failed—ExecutablePath not configured. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
                 taxYear, extSeq);
-            return;
+            return outcome;
         }
 
-        // If ExecuteOnIBMi is true, execute the shell script via SSH on IBM i
+        // If ExecuteOnIBMi is true, call GOANYWHERE/RUNPROJECT directly on IBM i.
+        // Keep SSH execution as fallback in case direct program call is unavailable.
         if (_goAnywhereExecuteOnIBMi)
         {
-            await TryRunGoAnywhereViaSshAsync(localFilePath, taxYear, extSeq);
-            return;
+            return await TryRunGoAnywhereViaProgramCallAsync(localFilePath, taxYear, extSeq);
         }
 
         // Otherwise, try HTTP execution
@@ -3393,6 +3611,8 @@ public sealed class ExtractService : IExtractService
                 "GoAnywhere transmit failed—ExecutablePath is not a valid HTTP/HTTPS URL. TaxYear={TaxYear}, ExtSeq={ExtSeq}, Path={Path}",
                 taxYear, extSeq, _goAnywhereExePath);
         }
+
+        return outcome;
     }
 
     private async Task TryRunGoAnywhereHttpAsync(Uri executeUri, string localFilePath, string taxYear, decimal extSeq)
@@ -3445,69 +3665,121 @@ public sealed class ExtractService : IExtractService
         }
     }
 
-    private async Task TryRunGoAnywhereViaSshAsync(string localFilePath, string taxYear, decimal extSeq)
+    private async Task<GoAnywhereTransmitOutcome> TryRunGoAnywhereViaProgramCallAsync(string localFilePath, string taxYear, decimal extSeq)
+    {
+        var outcome = new GoAnywhereTransmitOutcome();
+        var clCommand = string.Empty;
+        var qcmdexcSql = string.Empty;
+
+        try
+        {
+            if (string.IsNullOrWhiteSpace(_goAnywhereProjectPath))
+            {
+                _logger.LogError(
+                    "GoAnywhere IBM i execute failed-ProjectPath is not configured. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                    taxYear, extSeq);
+                return outcome;
+            }
+
+            // Build CL command and execute via QSYS/QCMDEXC with explicit command length.
+            var fileName = Path.GetFileName(localFilePath);
+            var projectPath = _goAnywhereProjectPath.Contains("/Development")
+                ? _goAnywhereProjectPath.Substring(_goAnywhereProjectPath.IndexOf("/Development"))
+                : _goAnywhereProjectPath;
+
+            clCommand = $"GOANYWHERE/RUNPROJECT PROJECT('{projectPath}') VARIABLE((Destfile '{fileName}'))";
+            var escapedCommand = clCommand.Replace("'", "''");
+            qcmdexcSql = $"CALL QSYS2.QCMDEXC('{escapedCommand}')";
+
+            await using var conn = new OdbcConnection(_cs);
+            await conn.OpenAsync();
+            await using var cmd = new OdbcCommand(qcmdexcSql, conn);
+            await cmd.ExecuteNonQueryAsync();
+
+            _logger.LogInformation(
+                "GoAnywhere transmit completed. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                taxYear, extSeq);
+            return outcome;
+        }
+#pragma warning disable CS0168
+        catch (Exception ex)
+        {
+            outcome.DirectProgramCallFailed = true;
+            _logger.LogError(ex,
+                "GoAnywhere IBM i direct program call failed for TaxYear={TaxYear}, ExtSeq={ExtSeq}. Falling back to SSH execution.",
+                taxYear, extSeq);
+            if (!string.IsNullOrWhiteSpace(clCommand))
+            {
+                _logger.LogError("Failed CL command string: {Command}", clCommand);
+            }
+            if (!string.IsNullOrWhiteSpace(qcmdexcSql))
+            {
+                _logger.LogError("Failed QCMDEXC SQL: {Sql}", qcmdexcSql);
+            }
+
+            // SSH fallback commented out - using direct QSYS2.QCMDEXC call only
+            // outcome.SshFallbackAttempted = await TryRunGoAnywhereViaSshFallbackAsync(localFilePath, taxYear, extSeq);
+            return outcome;
+        }
+#pragma warning restore CS0168
+    }
+
+    // Legacy SSH execution retained as fallback while validating direct RUNPROJECT call.
+    private async Task<bool> TryRunGoAnywhereViaSshFallbackAsync(string localFilePath, string taxYear, decimal extSeq)
     {
         try
         {
-            if (string.IsNullOrWhiteSpace(_goAnywhereHost))
+            if (string.IsNullOrWhiteSpace(_goAnywhereHost)
+                || string.IsNullOrWhiteSpace(_goAnywhereUsername)
+                || string.IsNullOrWhiteSpace(_goAnywherePassword))
             {
-                return;
+                _logger.LogWarning(
+                    "GoAnywhere SSH fallback skipped due to missing host/credentials. TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                    taxYear, extSeq);
+                return false;
             }
 
-            if (string.IsNullOrWhiteSpace(_goAnywherePassword))
-            {
-                return;
-            }
-
-            // Build the command to execute on IBM i
             var fileName = Path.GetFileName(localFilePath);
-            // Extract just the project path starting from /Development for the GoAnywhere system call
             var projectPath = _goAnywhereProjectPath.Contains("/Development")
                 ? _goAnywhereProjectPath.Substring(_goAnywhereProjectPath.IndexOf("/Development"))
                 : _goAnywhereProjectPath;
             var command = $"system \"goanyWHERE/RUNPROJECT project('{projectPath}') variable((Destfile '{fileName}'))\"";
 
-            // Create a background task to execute SSH
             var sshTask = Task.Run(async () =>
             {
                 try
                 {
-                    using (var sshClient = new Renci.SshNet.SshClient(_goAnywhereHost, 22, _goAnywhereUsername, _goAnywherePassword))
-                    {
-                        sshClient.ConnectionInfo.Timeout = TimeSpan.FromSeconds(30);
-                        await Task.Run(() => sshClient.Connect());
-                        
-                        using (var sshCommand = sshClient.CreateCommand(command))
-                        {
-                            sshCommand.CommandTimeout = TimeSpan.FromSeconds(300); // 5 minute timeout
-                            
-                            var result = await Task.Run(() => sshCommand.Execute());
-                            var exitStatus = sshCommand.ExitStatus;
-                        }
-                        sshClient.Disconnect();
-                    }
-#pragma warning disable CS0168
+                    using var sshClient = new SshClient(_goAnywhereHost, 22, _goAnywhereUsername, _goAnywherePassword);
+                    sshClient.ConnectionInfo.Timeout = TimeSpan.FromSeconds(30);
+                    await Task.Run(() => sshClient.Connect());
+
+                    using var sshCommand = sshClient.CreateCommand(command);
+                    sshCommand.CommandTimeout = TimeSpan.FromSeconds(300);
+                    await Task.Run(() => sshCommand.Execute());
+
+                    sshClient.Disconnect();
                 }
-                catch (Renci.SshNet.Common.SshConnectionException _)
+                catch (Exception ex)
                 {
+                    _logger.LogError(ex,
+                        "GoAnywhere SSH fallback failed for TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                        taxYear, extSeq);
                 }
-                catch (Renci.SshNet.Common.SshAuthenticationException _)
-                {
-                }
-                catch (Exception _)
-                {
-                }
-#pragma warning restore CS0168
             });
 
-            // Wait a short time to let the task start, then continue (don't block HTTP response)
             await Task.WhenAny(sshTask, Task.Delay(5000));
+            _logger.LogInformation(
+                "GoAnywhere SSH fallback submitted for TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                taxYear, extSeq);
+            return true;
         }
-#pragma warning disable CS0168
-        catch (Exception _)
+        catch (Exception ex)
         {
+            _logger.LogError(ex,
+                "GoAnywhere SSH fallback threw an exception for TaxYear={TaxYear}, ExtSeq={ExtSeq}",
+                taxYear, extSeq);
+            return false;
         }
-#pragma warning restore CS0168
     }
 
     /// <summary>

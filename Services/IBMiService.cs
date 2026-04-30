@@ -29,9 +29,18 @@ public sealed class IBMiService : IIBMiService
 
     public IBMiService(IConfiguration configuration, ILogger<IBMiService> logger)
     {
-        _connectionString = configuration.GetConnectionString("IBMi")
+        var baseCs = configuration.GetConnectionString("IBMi")
             ?? throw new InvalidOperationException(
                 "Connection string 'IBMi' is not configured in appsettings.json.");
+
+        // Inject credentials from the single IBMiCredentials section when missing.
+        var uid = configuration["IBMiCredentials:Username"] ?? string.Empty;
+        var pwd = configuration["IBMiCredentials:Password"] ?? string.Empty;
+        var hasUid = baseCs.Contains("UID=", StringComparison.OrdinalIgnoreCase);
+        var hasPwd = baseCs.Contains("PWD=", StringComparison.OrdinalIgnoreCase);
+        _connectionString = (!hasUid || !hasPwd)
+            ? $"{baseCs.TrimEnd(';')};UID={uid};PWD={pwd}"
+            : baseCs;
 
         _library = configuration["IBMiSettings:Library"] ?? "TXLIB";
         _logger  = logger;

@@ -89,7 +89,14 @@
 
     <div class="terminal-footer">
         <a asp-action="DownloadExclusionReport" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download Spreadsheet</a>
-        <a asp-action="DownloadExclusionReportPdf" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download PDF</a>
+        @if (string.IsNullOrEmpty(Model.SelectedAssociationFilter) && Model.TotalCount > 2000)
+        {
+            <span class="btn-terminal disabled" title="PDF download is disabled for ALL associations when there are more than 2,000 records. Please filter by a specific association." style="opacity:0.5;cursor:not-allowed;">Download PDF</span>
+        }
+        else
+        {
+            <a asp-action="DownloadExclusionReportPdf" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download PDF</a>
+        }
         <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
         <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
     </div>

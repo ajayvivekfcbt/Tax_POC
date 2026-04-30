@@ -14,11 +14,13 @@ public class ExtractController : Controller
 {
     private readonly IExtractService _extractSvc;
     private readonly ILogger<ExtractController> _logger;
+    private readonly IConfiguration _cfg;
 
-    public ExtractController(IExtractService extractSvc, ILogger<ExtractController> logger)
+    public ExtractController(IExtractService extractSvc, ILogger<ExtractController> logger, IConfiguration cfg)
     {
         _extractSvc = extractSvc;
         _logger = logger;
+        _cfg = cfg;
     }
 
     // ── Index — extract list subfile (TX9560 SFLEXTC) ─────────────────────
@@ -52,7 +54,7 @@ public class ExtractController : Controller
         if (vm.AddPressed)
         {
             _logger.LogInformation("AddPressed detected");
-            return RedirectToAction("Define", new { year = vm.TaxYear });
+            return RedirectToAction("Create", new { year = vm.TaxYear });
         }
 
         if (vm.ExecutePressed)
@@ -102,12 +104,18 @@ public class ExtractController : Controller
                     return RedirectToAction("Index");
 
                 case "5":
-                    var transmitSuccess = await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
-                    if (!transmitSuccess)
+                    var transmitResult = await _extractSvc.TransmitExtractAsync(vm.TaxYear, seq.Value);
+                    if (!transmitResult.Success)
                     {
                         TempData["ErrorMessage"] = 
                             $"Extract file not found for sequence {seq}. " +
                             "Please create (Option 1) and build the extract first, then transmit.";
+                    }
+                    else if (transmitResult.DirectProgramCallFailed)
+                    {
+                        TempData["StatusMessage"] =
+                            $"Extract {seq} transmit completed with fallback. " +
+                            "Direct GOANYWHERE/RUNPROJECT call failed; SSH fallback was attempted.";
                     }
                     else
                     {
@@ -119,7 +127,7 @@ public class ExtractController : Controller
                     return RedirectToAction("Index");
 
                 case "9":
-                    return RedirectToAction("FileViewer", new { year = vm.TaxYear, seq = seq.Value });
+                    return RedirectToAction("FileSummary", new { year = vm.TaxYear, seq = seq.Value });
 
                 case "F":
                     // F6 (Edit): show Define screen to select forms/associations
@@ -147,6 +155,43 @@ public class ExtractController : Controller
     }
 
     // ── Define — add/display extract header (TX9560 DEFINE) ──────────────
+
+    [HttpGet]
+    public async Task<IActionResult> Create(string year)
+    {
+        var vm = await BuildExtractCreateViewModelAsync(year);
+        return View(vm);
+    }
+
+    [HttpPost, ValidateAntiForgeryToken]
+    public async Task<IActionResult> Create(ExtractCreateViewModel vm)
+    {
+        if (vm.CancelPressed)
+            return RedirectToAction("Index");
+
+        if (!ModelState.IsValid)
+        {
+            var rebound = await BuildExtractCreateViewModelAsync(vm.TaxYear);
+            rebound.Description = vm.Description;
+            rebound.SelectDate = vm.SelectDate;
+            rebound.MediaNumber = vm.MediaNumber;
+            rebound.ReplaceCode = vm.ReplaceCode;
+            rebound.ReplaceFile = vm.ReplaceFile;
+            rebound.TestFile = vm.TestFile;
+            rebound.PriorYear = vm.PriorYear;
+            return View(rebound);
+        }
+
+        var seq = await _extractSvc.CreateExtractAsync(
+            vm.TaxYear,
+            vm.Description,
+            vm.SelectDate.ToString("yyyy-MM-dd"),
+            vm.TransmitterName,
+            vm.CompanyName2);
+
+        TempData["StatusMessage"] = $"Extract {seq} created.";
+        return RedirectToAction("Setup", new { year = vm.TaxYear, seq });
+    }
 
     [HttpGet]
     public async Task<IActionResult> Define(string year, long? seq, bool display = false)
@@ -196,7 +241,7 @@ public class ExtractController : Controller
     }
 
     [HttpGet]
-    public async Task<IActionResult> FileViewer(string year, long seq)
+    public async Task<IActionResult> FileSummary(string year, long seq)
     {
         var all = await _extractSvc.ListExtractsAsync(year);
         var existing = all.FirstOrDefault(r => r.ExtSeq == seq);
@@ -216,7 +261,55 @@ public class ExtractController : Controller
             var content = System.Text.Encoding.UTF8.GetString(dl.Value.Content);
             lines = content
                 .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+                .Where(l => !string.IsNullOrWhiteSpace(l))
                 .ToList();
+        }
+
+        return View(new ExtractFileSummaryViewModel
+        {
+            TaxYear = year,
+            ExtSeq = seq,
+            RunDescription = existing?.ExtDesc ?? string.Empty,
+            RunDate = existing?.ExtDate ?? string.Empty,
+            FileName = fileName,
+            Summaries = BuildFormSummaries(lines),
+            ErrorMessage = errorMessage
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> FileViewer(string year, long seq)
+    {
+        var all = await _extractSvc.ListExtractsAsync(year);
+        var existing = all.FirstOrDefault(r => r.ExtSeq == seq);
+
+        var selectedForm = (Request.Query["form"].ToString() ?? string.Empty).Trim();
+        var dl = await _extractSvc.DownloadExtractAsync(year, seq);
+        var lines = new List<string>();
+        var fileName = string.Empty;
+        var errorMessage = string.Empty;
+
+        if (dl is null)
+        {
+            errorMessage = "Generated IRS extract file not found. Run option 1 (Build) first.";
+        }
+        else
+        {
+            fileName = dl.Value.FileName;
+            var content = System.Text.Encoding.UTF8.GetString(dl.Value.Content);
+            lines = content
+                .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
+
+            if (!string.IsNullOrWhiteSpace(selectedForm))
+            {
+                lines = FilterLinesForForm(lines, selectedForm);
+                if (lines.Count == 0)
+                {
+                    errorMessage = $"No extract records found for form {selectedForm}.";
+                }
+            }
         }
 
         return View(new ExtractFileViewerViewModel
@@ -227,6 +320,7 @@ public class ExtractController : Controller
             RunDate = existing?.ExtDate ?? string.Empty,
             FileName = fileName,
             Lines = lines,
+            SelectedForm = selectedForm,
             ErrorMessage = errorMessage
         });
     }
@@ -336,4 +430,196 @@ public class ExtractController : Controller
     {
         "1098", "1099-A", "1099-MISC", "1099-NEC", "1099-INT", "1099-DIV"
     };
+
+    private async Task<ExtractCreateViewModel> BuildExtractCreateViewModelAsync(string year)
+    {
+        var rows = await _extractSvc.ListExtractsAsync(year);
+        var nextSeq = rows.Count == 0 ? 1L : rows.Max(r => r.ExtSeq) + 1L;
+        var lastExtract = rows
+            .OrderByDescending(r => r.ExtSeq)
+            .FirstOrDefault();
+
+        var defaultSelectDate = DateTime.Today;
+        if (lastExtract is not null && TryParseExtractDate(lastExtract.ExtSelDat, out var parsedSelectDate))
+        {
+            defaultSelectDate = parsedSelectDate;
+        }
+
+        var transmitterName = ResolvePrefill(
+            _cfg["Transmitter:CompanyName"],
+            lastExtract?.XmtrName);
+
+        var companyName2 = ResolvePrefill(
+            _cfg["Transmitter:CompanyName2"],
+            lastExtract?.XmtrName2,
+            transmitterName);
+
+        var taxId = ResolvePrefill(_cfg["Transmitter:TransmitterTIN"]);
+        var controlCode = ResolvePrefill(_cfg["Transmitter:TransmitterFEI"]);
+
+        return new ExtractCreateViewModel
+        {
+            TaxYear = year,
+            NextExtSeq = nextSeq,
+            Description = string.Empty,
+            SelectDate = defaultSelectDate,
+            ExtractedAtDisplay = "0001-01-01-00.00.00.000000",
+            TransmitterName = transmitterName,
+            CompanyName = transmitterName,
+            CompanyName2 = companyName2,
+            MailAddress = ResolvePrefill(_cfg["Transmitter:Address"]),
+            MailCity = ResolvePrefill(_cfg["Transmitter:City"]),
+            MailState = ResolvePrefill(_cfg["Transmitter:State"]),
+            MailZip = (_cfg["Transmitter:Zip"] ?? string.Empty).Replace("-", string.Empty),
+            ContactName = ResolvePrefill(_cfg["Transmitter:ContactName"]),
+            ContactPhone = (_cfg["Transmitter:ContactPhone"] ?? string.Empty).Replace("-", string.Empty),
+            ContactEmail = ResolvePrefill(_cfg["Transmitter:ContactEmail"]),
+            TaxId = taxId,
+            ControlCode = controlCode,
+            MediaNumber = string.Empty,
+            ReplaceCode = string.Empty,
+            ReplaceFile = string.Empty,
+            TestFile = string.Empty,
+            PriorYear = string.Empty
+        };
+    }
+
+    private static string ResolvePrefill(params string?[] candidates)
+    {
+        foreach (var value in candidates)
+        {
+            var trimmed = (value ?? string.Empty).Trim();
+            if (!string.IsNullOrWhiteSpace(trimmed))
+            {
+                return trimmed;
+            }
+        }
+
+        return string.Empty;
+    }
+
+    private static bool TryParseExtractDate(string? raw, out DateTime parsed)
+    {
+        parsed = DateTime.MinValue;
+        var value = (raw ?? string.Empty).Trim();
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return false;
+        }
+
+        if (DateTime.TryParseExact(value, "yyyyMMdd", null, System.Globalization.DateTimeStyles.None, out parsed))
+        {
+            return true;
+        }
+
+        if (DateTime.TryParse(value, out parsed))
+        {
+            return true;
+        }
+
+        return false;
+    }
+
+    private static List<ExtractFormSummaryRow> BuildFormSummaries(IList<string> lines)
+    {
+        var map = new Dictionary<string, ExtractFormSummaryRow>(StringComparer.OrdinalIgnoreCase);
+        string currentForm = string.Empty;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrEmpty(line))
+                continue;
+
+            var recType = line[0];
+            switch (recType)
+            {
+                case 'A':
+                    currentForm = ReadFormFromARecord(line);
+                    if (string.IsNullOrWhiteSpace(currentForm))
+                    {
+                        currentForm = "UNKNOWN";
+                    }
+
+                    if (!map.TryGetValue(currentForm, out var row))
+                    {
+                        row = new ExtractFormSummaryRow { FormType = currentForm };
+                        map[currentForm] = row;
+                    }
+
+                    row.ARecords++;
+                    row.TotalRecords++;
+                    break;
+
+                case 'B':
+                    if (!string.IsNullOrWhiteSpace(currentForm) && map.TryGetValue(currentForm, out var bRow))
+                    {
+                        bRow.BRecords++;
+                        bRow.TotalRecords++;
+                    }
+                    break;
+
+                case 'C':
+                    if (!string.IsNullOrWhiteSpace(currentForm) && map.TryGetValue(currentForm, out var cRow))
+                    {
+                        cRow.CRecords++;
+                        cRow.TotalRecords++;
+                    }
+                    break;
+            }
+        }
+
+        return map.Values
+            .OrderBy(v => v.FormType, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static List<string> FilterLinesForForm(IList<string> lines, string selectedForm)
+    {
+        var targetForm = selectedForm.Trim();
+        var filtered = new List<string>();
+        var includeCurrentGroup = false;
+
+        foreach (var line in lines)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            var recType = line[0];
+            if (recType == 'T' || recType == 'F')
+            {
+                filtered.Add(line);
+                continue;
+            }
+
+            if (recType == 'A')
+            {
+                var form = ReadFormFromARecord(line);
+                includeCurrentGroup = string.Equals(form, targetForm, StringComparison.OrdinalIgnoreCase);
+                if (includeCurrentGroup)
+                {
+                    filtered.Add(line);
+                }
+                continue;
+            }
+
+            if ((recType == 'B' || recType == 'C') && includeCurrentGroup)
+            {
+                filtered.Add(line);
+            }
+        }
+
+        return filtered;
+    }
+
+    private static string ReadFormFromARecord(string line)
+    {
+        const int startIndex = 47; // 1-based 48, length 40
+        const int length = 40;
+
+        if (line.Length <= startIndex)
+            return string.Empty;
+
+        var safeLength = Math.Min(length, line.Length - startIndex);
+        return line.Substring(startIndex, safeLength).Trim();
+    }
 }

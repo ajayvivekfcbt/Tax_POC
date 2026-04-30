@@ -224,6 +224,23 @@ public sealed class TaxReportingController : Controller
         HttpContext.Session.SetString(SessionKeyForm, selectedForm);
         HttpContext.Session.SetString(SessionKeyFormDesc, FormDescriptions[selectedForm]);
 
+        // Call IBM i program SS1000 when 1099-MISC income option is selected (AP1099 parameter).
+        if (string.Equals(selectedForm, "1099-MISC", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                // TODO: Enable SS1000 call when ready
+                // await _ibmi.ExecuteProgramAsync("SS1000", "AP1099");
+                _logger.LogInformation("SS1000 placeholder for 1099-MISC (not yet enabled).");
+                TempData["StatusMessage"] = "1099-MISC processing prepared (SS1000 pending).";
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error calling SS1000 for 1099-MISC selection");
+                TempData["ErrorMessage"] = $"Error calling IBM i program SS1000: {ex.Message}";
+            }
+        }
+
         return RedirectToAction(nameof(FormMenu));
     }
 
@@ -272,6 +289,10 @@ public sealed class TaxReportingController : Controller
             ErrorMessage    = TempData["ErrorMessage"]  as string,
             SelectedAssociationsDisplay = BuildAssociationsDisplay(),
             IsValidationRunning = validationState.IsRunning,
+            IsBuildDisabled = IsInactiveYear(control),
+            BuildDisabledReason = IsInactiveYear(control)
+                ? "Build Tax Records is not available when the selected tax year is inactive."
+                : null,
         });
     }
 
@@ -326,6 +347,12 @@ public sealed class TaxReportingController : Controller
                     break;
 
                 case "BUILD":
+                    if (IsInactiveYear(control))
+                    {
+                        TempData["ErrorMessage"] = "Build Tax Records is disabled for inactive tax years.";
+                        break;
+                    }
+
                     // Build tax records from all associations by default.
                     selectedAssociations = new List<string>();
                     selectAllAssociations = true;
@@ -354,12 +381,8 @@ public sealed class TaxReportingController : Controller
                     return RedirectToAction("Select", "Maintain");
 
                 case "LETTER":
-                    // TX9505 (interactive) removed — assocs already in session.
-                    await _reportService.PrintLettersAsync(
-                        control.TaxYear, selectedAssociations, selectAllAssociations);
-                    TempData["StatusMessage"] =
-                        "Letter processing completed. If TX9591R is unavailable on IBM i, web fallback was used.";
-                    break;
+                    // TX9591R is rendered natively in web flow.
+                    return RedirectToAction(nameof(Letters));
 
                 default:
                     TempData["ErrorMessage"] = "No action was selected.";
@@ -852,6 +875,152 @@ public sealed class TaxReportingController : Controller
             useAllAssociations: true);
     }
 
+    [HttpGet]
+    public async Task<IActionResult> Letters(int page = 1, string? assoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        if (!string.Equals(formName, "1098", StringComparison.OrdinalIgnoreCase))
+        {
+            TempData["ErrorMessage"] = "Letter processing is available only for form 1098.";
+            return RedirectToAction(nameof(FormMenu));
+        }
+
+        try
+        {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
+            var paged = await _reportService.GetLetterCandidatesPageAsync(
+                control.TaxYear,
+                selectedAssociations,
+                selectAllAssociations,
+                page,
+                ReportPageSize);
+
+            var allRowsForFilters = await _reportService.GetLetterCandidatesAsync(
+                control.TaxYear,
+                GetSelectedAssociationCodes(),
+                AreAllAssociationsSelected());
+
+            var availableAssociationFilters = BuildAvailableAssociationFilters(
+                allRowsForFilters.Select(r => r.Asa),
+                selectedAssociationFilter);
+
+            var totalInterestAmount = allRowsForFilters.Sum(r => r.IntPd);
+            var totalCustomerCount = allRowsForFilters
+                .Select(r => $"{r.Asa.Trim()}|{r.MbrNo:0}|{(r.MbrSub ?? string.Empty).Trim()}")
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .Count();
+
+            return View(new LetterCandidateListViewModel
+            {
+                TaxYear = control.TaxYear,
+                SelectedAssociationFilter = selectedAssociationFilter,
+                AvailableAssociationFilters = availableAssociationFilters,
+                Rows = paged.Items,
+                PageNumber = paged.PageNumber,
+                PageSize = paged.PageSize,
+                TotalCount = paged.TotalCount,
+                TotalInterestAmount = totalInterestAmount,
+                TotalCustomerCount = totalCustomerCount
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error building TX9591R letter page for tax year {TaxYear}", control.TaxYear);
+            TempData["ErrorMessage"] = $"Unable to build letter page: {ex.Message}";
+            return RedirectToAction(nameof(FormMenu));
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadLetters(string? assoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
+            var rows = await _reportService.GetLetterCandidatesAsync(
+                control.TaxYear,
+                selectedAssociations,
+                selectAllAssociations);
+
+            var csvBytes = BuildLettersCsv(rows);
+            var fileName = $"1098_nonreport_letters_{DateTime.UtcNow:yyyyMMdd_HHmmss}.csv";
+            return File(csvBytes, "text/csv", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting TX9591R letter list for tax year {TaxYear}", control.TaxYear);
+            TempData["ErrorMessage"] = $"Unable to export letters: {ex.Message}";
+            return RedirectToAction(nameof(Letters));
+        }
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DownloadLettersPdf(string? assoc = null)
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var selectedAssociations = GetSelectedAssociationCodes();
+            var selectAllAssociations = AreAllAssociationsSelected();
+            var selectedAssociationFilter = NormalizeAssociationCode(assoc);
+
+            if (!string.IsNullOrEmpty(selectedAssociationFilter))
+            {
+                selectedAssociations = new List<string> { selectedAssociationFilter };
+                selectAllAssociations = false;
+            }
+
+            var rows = await _reportService.GetLetterCandidatesAsync(
+                control.TaxYear,
+                selectedAssociations,
+                selectAllAssociations);
+
+            var pdfBytes = BuildLettersPdf(rows, control.TaxYear, selectedAssociationFilter);
+            var fileName = $"1098_nonreport_letters_{DateTime.UtcNow:yyyyMMdd_HHmmss}.pdf";
+            return File(pdfBytes, "application/pdf", fileName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error exporting TX9591R letter PDF for tax year {TaxYear}", control.TaxYear);
+            TempData["ErrorMessage"] = $"Unable to export letter PDF: {ex.Message}";
+            return RedirectToAction(nameof(Letters));
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════════════════
     // EXIT  (F3 in IBM i – GOTO END_PGM)
     // ═══════════════════════════════════════════════════════════════════════
@@ -900,6 +1069,13 @@ public sealed class TaxReportingController : Controller
         {
             return null;
         }
+    }
+
+    private static bool IsInactiveYear(TaxControlRecord control)
+    {
+        var status = control.TaxStatus?.Trim();
+        return !string.IsNullOrEmpty(status)
+            && status.Equals("INACTIVE", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1266,6 +1442,124 @@ public sealed class TaxReportingController : Controller
         return Encoding.UTF8.GetBytes(sb.ToString());
     }
 
+    private static byte[] BuildLettersCsv(IList<Tx9501.Models.Entities.TaxDetailRecord> rows)
+    {
+        var sb = new StringBuilder();
+        sb.AppendLine("Association,MemberNumber,MemberSub,TaxpayerIdMasked,BorrowerName,Address,Address2,City,State,Zip,InterestPaid,NonReportReason");
+
+        foreach (var row in rows)
+        {
+            var fields = new[]
+            {
+                row.Asa,
+                row.MbrNo.ToString("0", CultureInfo.InvariantCulture),
+                row.MbrSub,
+                FormatTaxpayerIdForExport(row.SsiDc, row.SsiDn),
+                row.BorrName,
+                row.BorrAddr,
+                row.BorrAddrX,
+                row.BorrCity,
+                row.BorrState,
+                row.BorrZip.ToString("0", CultureInfo.InvariantCulture),
+                row.IntPd.ToString("0.00", CultureInfo.InvariantCulture),
+                row.NonRptReason
+            };
+
+            sb.AppendLine(string.Join(",", fields.Select(EscapeCsv)));
+        }
+
+        return Encoding.UTF8.GetBytes(sb.ToString());
+    }
+
+    private static byte[] BuildLettersPdf(
+        IList<Tx9501.Models.Entities.TaxDetailRecord> rows,
+        string taxYear,
+        string selectedAssociationFilter)
+    {
+        QuestPDF.Settings.License = LicenseType.Community;
+
+        var letterRows = rows
+            .GroupBy(r => $"{NormalizeReportTextForLetter(r.Asa)}|{(long)r.MbrNo}|{NormalizeReportTextForLetter(r.MbrSub)}|{(long)r.SsiDn}", StringComparer.OrdinalIgnoreCase)
+            .Select(g =>
+            {
+                var first = g.First();
+                return new
+                {
+                    Association = first.Asa,
+                    MemberNo = first.MbrNo,
+                    MemberSub = first.MbrSub,
+                    Name = first.BorrName,
+                    Address1 = first.BorrAddr,
+                    Address2 = first.BorrAddrX,
+                    City = first.BorrCity,
+                    State = first.BorrState,
+                    Zip = first.BorrZip,
+                    TaxpayerType = first.SsiDc,
+                    TaxpayerId = first.SsiDn,
+                    InterestAmount = g.Sum(x => x.IntPd)
+                };
+            })
+            .OrderBy(x => x.Association)
+            .ThenBy(x => x.MemberNo)
+            .ThenBy(x => x.MemberSub)
+            .ToList();
+
+        var assocLabel = string.IsNullOrWhiteSpace(selectedAssociationFilter)
+            ? "All"
+            : selectedAssociationFilter;
+
+        return Document.Create(container =>
+        {
+            container.Page(page =>
+            {
+                page.Size(PageSizes.Letter);
+                page.Margin(1.0f, Unit.Inch);
+                page.DefaultTextStyle(t => t.FontFamily("Times New Roman").FontSize(12));
+
+                page.Content().Column(column =>
+                {
+                    for (var i = 0; i < letterRows.Count; i++)
+                    {
+                        var row = letterRows[i];
+
+                        column.Item().Text($"Tax Year {taxYear} - Non-1098 Interest Notification").Bold().FontSize(13);
+                        column.Item().Text($"Association: {(row.Association ?? string.Empty).Trim()}    Member: {row.MemberNo:0}-{(row.MemberSub ?? string.Empty).Trim()}").FontSize(10);
+                        column.Item().Text($"Generated: {DateTime.Now:MMMM d, yyyy}").FontSize(10);
+                        column.Item().PaddingBottom(16).Text($"Filter: {assocLabel}").FontSize(10);
+
+                        column.Item().Text((row.Name ?? string.Empty).Trim());
+                        column.Item().Text((row.Address1 ?? string.Empty).Trim());
+                        if (!string.IsNullOrWhiteSpace(row.Address2))
+                            column.Item().Text(row.Address2.Trim());
+
+                        var cityStateZip = $"{(row.City ?? string.Empty).Trim()}, {(row.State ?? string.Empty).Trim()} {FormatZipForAddress(row.Zip)}".Trim();
+                        column.Item().PaddingBottom(18).Text(cityStateZip);
+
+                        column.Item().Text("Dear Borrower,").Bold();
+                        column.Item().PaddingTop(8).Text(
+                            $"Our records indicate that you paid cash interest during tax year {taxYear}, " +
+                            "but the amount did not meet the threshold for issuance of IRS Form 1098.");
+
+                        column.Item().PaddingTop(8).Text(
+                            $"Total interest paid for your account: {row.InterestAmount.ToString("C", CultureInfo.CurrentCulture)}.");
+
+                        column.Item().PaddingTop(8).Text(
+                            $"For your records, taxpayer identification on file is {FormatTaxpayerIdForExport(row.TaxpayerType, row.TaxpayerId)}.");
+
+                        column.Item().PaddingTop(8).Text(
+                            "Please keep this letter with your tax records. Contact your association if you have questions.");
+
+                        column.Item().PaddingTop(24).Text("Sincerely,");
+                        column.Item().PaddingTop(24).Text("Tax Reporting Department");
+
+                        if (i < letterRows.Count - 1)
+                            column.Item().PageBreak();
+                    }
+                });
+            });
+        }).GeneratePdf();
+    }
+
     private static byte[] BuildReportPdf(
         IList<Tx9501.Models.Entities.TaxDetailRecord> rows,
         string taxYear,
@@ -1389,6 +1683,21 @@ public sealed class TaxReportingController : Controller
         }
 
         return normalized;
+    }
+
+    private static string NormalizeReportTextForLetter(string? value)
+        => (value ?? string.Empty).Trim();
+
+    private static string FormatZipForAddress(decimal zip)
+    {
+        if (zip <= 0)
+            return string.Empty;
+
+        var asLong = (long)zip;
+        if (asLong > 99999)
+            return asLong.ToString("000000000", CultureInfo.InvariantCulture);
+
+        return asLong.ToString("00000", CultureInfo.InvariantCulture);
     }
 
     /// <summary>

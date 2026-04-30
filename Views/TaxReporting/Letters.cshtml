@@ -1,6 +1,16 @@
-@model Tx9501.Models.ViewModels.PagedTaxDetailListViewModel
+@model Tx9501.Models.ViewModels.LetterCandidateListViewModel
+@using System.Globalization
 @{
-    ViewData["Title"] = $"Detail Report - {Model.FormName}";
+    ViewData["Title"] = "Non-1098 Interest Letters";
+
+    string MaskTaxId(string? ssiDc, decimal ssiDn)
+    {
+        var normalizedType = (ssiDc ?? string.Empty).Trim().ToUpperInvariant();
+        var digits = ssiDn.ToString("000000000", CultureInfo.InvariantCulture);
+        if (normalizedType is "S" or "E")
+            return $"XXX-XX-{digits[^4..]}";
+        return digits;
+    }
 }
 
 <div class="terminal-panel">
@@ -11,7 +21,7 @@
     </div>
     <div class="terminal-header d-flex justify-content-between">
         <span>@DateTime.Now.ToString("HH:mm:ss")</span>
-        <span class="text-info">@Model.FormName - @Model.FormDescription</span>
+        <span class="text-info">Form 1098 - Letter Candidates</span>
         <span>WEB</span>
     </div>
 
@@ -26,14 +36,25 @@
         </span>
     </div>
 
-    <form asp-action="DetailReport" method="get" class="terminal-row mt-2">
+    <div class="terminal-banner d-flex justify-content-between mt-1">
+        <span>
+            <span class="terminal-label">Customers:</span>
+            <span class="terminal-value text-warning">@Model.TotalCustomerCount</span>
+        </span>
+        <span>
+            <span class="terminal-label">Total Interest:</span>
+            <span class="terminal-value text-warning">@Model.TotalInterestAmount.ToString("C", CultureInfo.CurrentCulture)</span>
+        </span>
+    </div>
+
+    <form asp-action="Letters" method="get" class="terminal-row mt-2">
         <input type="hidden" name="page" value="1" />
         <label class="terminal-label mb-0">Association Filter</label>
         <select id="assoc-filter" name="assoc" class="terminal-input input-sm">
             <option value="">Loading...</option>
         </select>
         <button type="submit" class="btn-terminal">Apply Filter</button>
-        <a asp-action="DetailReport" class="btn-terminal btn-exit">Clear</a>
+        <a asp-action="Letters" class="btn-terminal btn-exit">Clear</a>
     </form>
 
     <div class="table-responsive mt-3">
@@ -45,10 +66,12 @@
                     <th>Sub</th>
                     <th>Taxpayer ID</th>
                     <th>Name</th>
+                    <th>Address</th>
                     <th>City</th>
                     <th>State</th>
-                    <th>Report</th>
-                    <th>Error</th>
+                    <th>Zip</th>
+                    <th>Interest</th>
+                    <th>Reason</th>
                 </tr>
             </thead>
             <tbody>
@@ -58,12 +81,14 @@
                     <td>@row.Asa</td>
                     <td>@row.MbrNo.ToString("0")</td>
                     <td>@row.MbrSub</td>
-                    <td>@row.SsiDc @row.SsiDn.ToString("0")</td>
+                    <td>@MaskTaxId(row.SsiDc, row.SsiDn)</td>
                     <td>@row.BorrName</td>
+                    <td>@row.BorrAddr @row.BorrAddrX</td>
                     <td>@row.BorrCity</td>
                     <td>@row.BorrState</td>
-                    <td>@row.ReportToIrs</td>
-                    <td>@(string.IsNullOrWhiteSpace(row.Errors) ? "" : row.Errors)</td>
+                    <td>@row.BorrZip.ToString("00000")</td>
+                    <td>@row.IntPd.ToString("C", CultureInfo.CurrentCulture)</td>
+                    <td>@row.NonRptReason</td>
                 </tr>
             }
             </tbody>
@@ -77,26 +102,19 @@
             <span>
                 @if (Model.HasPreviousPage)
                 {
-                    <a asp-action="DetailReport" asp-route-page="@(Model.PageNumber - 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Prev 50</a>
+                    <a asp-action="Letters" asp-route-page="@(Model.PageNumber - 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Prev 50</a>
                 }
                 @if (Model.HasNextPage)
                 {
-                    <a asp-action="DetailReport" asp-route-page="@(Model.PageNumber + 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Next 50</a>
+                    <a asp-action="Letters" asp-route-page="@(Model.PageNumber + 1)" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Next 50</a>
                 }
             </span>
         </div>
     }
 
     <div class="terminal-footer">
-        <a asp-action="DownloadDetailReport" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download Spreadsheet</a>
-        @if (string.IsNullOrEmpty(Model.SelectedAssociationFilter) && Model.TotalCount > 2000)
-        {
-            <span class="btn-terminal disabled" title="PDF download is disabled for ALL associations when there are more than 2,000 records. Please filter by a specific association." style="opacity:0.5;cursor:not-allowed;">Download PDF</span>
-        }
-        else
-        {
-            <a asp-action="DownloadDetailReportPdf" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download PDF</a>
-        }
+        <a asp-action="DownloadLetters" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download Spreadsheet</a>
+        <a asp-action="DownloadLettersPdf" asp-route-assoc="@Model.SelectedAssociationFilter" class="btn-terminal">Download PDF Letters</a>
         <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
         <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
     </div>
@@ -107,11 +125,8 @@
 (function () {
     var select = document.getElementById('assoc-filter');
     var currentValue = '@Html.Raw(Model.SelectedAssociationFilter)';
-    
-    // Get all available associations from the server
     var allAssociations = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableAssociationFilters));
-    
-    // Populate dropdown with all available associations
+
     select.innerHTML = '<option value="">All</option>';
     allAssociations.forEach(function (code) {
         var opt = document.createElement('option');

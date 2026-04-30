@@ -1,21 +1,13 @@
-@model Tx9501.Models.ViewModels.ExtractFileViewerViewModel
+@model Tx9501.Models.ViewModels.ExtractFileSummaryViewModel
 @{
-    ViewData["Title"] = "IRS Extract Viewer";
+    ViewData["Title"] = "IRS Extract Summary";
 }
 
 <div class="terminal-panel">
     <div class="terminal-header">
-        <span class="terminal-title">TX9560 - IRS Extract Viewer</span>
+        <span class="terminal-title">TX9560 - IRS Extract Form Summary</span>
         <span class="terminal-right">Year: @Model.TaxYear</span>
     </div>
-
-    @if (!string.IsNullOrWhiteSpace(Model.SelectedForm))
-    {
-        <div class="terminal-row">
-            <span class="terminal-label">Selected Form</span>
-            <span class="terminal-value">@Model.SelectedForm</span>
-        </div>
-    }
 
     <div class="terminal-row">
         <span class="terminal-label">Run Sequence</span>
@@ -38,22 +30,36 @@
     {
         <div class="terminal-message">@Model.ErrorMessage</div>
     }
+    else if (Model.Summaries.Count == 0)
+    {
+        <div class="terminal-message">No form-level records were found in this extract file.</div>
+    }
     else
     {
         <div class="table-responsive-nowrap" style="max-height: 60vh; overflow: auto;">
             <table class="terminal-table">
                 <thead>
                     <tr>
-                        <th style="width: 90px;">Line</th>
-                        <th>Content</th>
+                        <th style="width: 120px;">Form</th>
+                        <th style="width: 110px;">A Records</th>
+                        <th style="width: 110px;">B Records</th>
+                        <th style="width: 110px;">C Records</th>
+                        <th style="width: 120px;">Total</th>
+                        <th style="width: 160px;">Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                @for (var i = 0; i < Model.Lines.Count; i++)
+                @foreach (var row in Model.Summaries)
                 {
                     <tr>
-                        <td>@(i + 1)</td>
-                        <td style="white-space: pre;">@Model.Lines[i]</td>
+                        <td>@row.FormType</td>
+                        <td>@row.ARecords</td>
+                        <td>@row.BRecords</td>
+                        <td>@row.CRecords</td>
+                        <td>@row.TotalRecords</td>
+                        <td>
+                            <a class="btn-terminal" asp-controller="Extract" asp-action="FileViewer" asp-route-year="@Model.TaxYear" asp-route-seq="@Model.ExtSeq" asp-route-form="@row.FormType">Display Full Extract</a>
+                        </td>
                     </tr>
                 }
                 </tbody>
@@ -62,10 +68,6 @@
     }
 
     <div class="terminal-footer">
-        @if (!string.IsNullOrWhiteSpace(Model.SelectedForm))
-        {
-            <a asp-controller="Extract" asp-action="FileSummary" asp-route-year="@Model.TaxYear" asp-route-seq="@Model.ExtSeq" class="btn-terminal">Back To Summary</a>
-        }
         <a asp-controller="Extract" asp-action="Index" class="btn-terminal btn-exit">F12=Back</a>
     </div>
 </div>

@@ -268,6 +268,27 @@ public class PagedTaxDetailListViewModel
     public int LastRowNumber => TotalCount == 0 ? 0 : Math.Min(PageNumber * PageSize, TotalCount);
 }
 
+public class LetterCandidateListViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+    public string FormName { get; set; } = "1098";
+    public string ScreenTitle { get; set; } = "Tax Reporting System - Non-1098 Interest Letters";
+    public string ProgramName { get; set; } = "TX9591R";
+    public string SelectedAssociationFilter { get; set; } = string.Empty;
+    public IList<string> AvailableAssociationFilters { get; set; } = new List<string>();
+    public IList<TaxDetailRecord> Rows { get; set; } = new List<TaxDetailRecord>();
+    public int PageNumber { get; set; } = 1;
+    public int PageSize { get; set; } = 50;
+    public int TotalCount { get; set; }
+    public decimal TotalInterestAmount { get; set; }
+    public int TotalCustomerCount { get; set; }
+    public int TotalPages => TotalCount <= 0 ? 1 : (int)Math.Ceiling(TotalCount / (double)PageSize);
+    public bool HasPreviousPage => PageNumber > 1;
+    public bool HasNextPage => PageNumber < TotalPages;
+    public int FirstRowNumber => TotalCount == 0 ? 0 : ((PageNumber - 1) * PageSize) + 1;
+    public int LastRowNumber => TotalCount == 0 ? 0 : Math.Min(PageNumber * PageSize, TotalCount);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TX9560 / TX9562 – Work with Extracts
 // ─────────────────────────────────────────────────────────────────────────────
@@ -309,6 +330,75 @@ public class ExtractDefineViewModel
     public bool     CancelPressed { get; set; }
 }
 
+public class ExtractCreateViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+
+    public long NextExtSeq { get; set; }
+
+    [Required(ErrorMessage = "Description is required.")]
+    [StringLength(40)]
+    public string Description { get; set; } = string.Empty;
+
+    [DataType(DataType.Date)]
+    public DateTime SelectDate { get; set; } = DateTime.Today;
+
+    public string ExtractedAtDisplay { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string TransmitterName { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string CompanyName { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string CompanyName2 { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string MailAddress { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string MailCity { get; set; } = string.Empty;
+
+    [StringLength(2)]
+    public string MailState { get; set; } = string.Empty;
+
+    [StringLength(9)]
+    public string MailZip { get; set; } = string.Empty;
+
+    [StringLength(40)]
+    public string ContactName { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string ContactPhone { get; set; } = string.Empty;
+
+    [StringLength(60)]
+    public string ContactEmail { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string TaxId { get; set; } = string.Empty;
+
+    [StringLength(10)]
+    public string ControlCode { get; set; } = string.Empty;
+
+    [StringLength(10)]
+    public string MediaNumber { get; set; } = string.Empty;
+
+    [StringLength(2)]
+    public string ReplaceCode { get; set; } = string.Empty;
+
+    [StringLength(30)]
+    public string ReplaceFile { get; set; } = string.Empty;
+
+    [StringLength(1)]
+    public string TestFile { get; set; } = string.Empty;
+
+    [StringLength(1)]
+    public string PriorYear { get; set; } = string.Empty;
+
+    public bool CancelPressed { get; set; }
+}
+
 public class ExtractSetupViewModel
 {
     public string        TaxYear        { get; set; } = string.Empty;
@@ -330,6 +420,27 @@ public class ExtractFileViewerViewModel
     public string RunDate { get; set; } = string.Empty;
     public string FileName { get; set; } = string.Empty;
     public List<string> Lines { get; set; } = new();
+    public string SelectedForm { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+}
+
+public class ExtractFormSummaryRow
+{
+    public string FormType { get; set; } = string.Empty;
+    public int ARecords { get; set; }
+    public int BRecords { get; set; }
+    public int CRecords { get; set; }
+    public int TotalRecords { get; set; }
+}
+
+public class ExtractFileSummaryViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+    public long ExtSeq { get; set; }
+    public string RunDescription { get; set; } = string.Empty;
+    public string RunDate { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public List<ExtractFormSummaryRow> Summaries { get; set; } = new();
     public string ErrorMessage { get; set; } = string.Empty;
 }
 

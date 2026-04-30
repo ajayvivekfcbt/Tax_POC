@@ -51,11 +51,12 @@
             @Model.StatusMessage
         </div>
     }
-
-    <!-- ── Selected Associations Info ───────────────────────────────────── -->
-    <div class="alert alert-info py-1 px-3 font-monospace small mb-2" style="background-color: #e7f3ff; border: 1px solid #b3d9ff;">
-        <span class="fw-bold">Selected Associations:</span> @Model.SelectedAssociationsDisplay
-    </div>
+    @if (Model.IsBuildDisabled && !string.IsNullOrWhiteSpace(Model.BuildDisabledReason))
+    {
+        <div class="alert alert-warning py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #ffc107;">
+            @Model.BuildDisabledReason
+        </div>
+    }
 
     <!-- ── Row 6 – Column headings ──────────────────────────────────────── -->
     <div class="row terminal-colhdr mt-1 mb-1">
@@ -88,7 +89,7 @@
         @FormRow("CLEAR",    "opt_clear",   Model.D_Clear)
 
         <!-- ── Row 17 – Build ───────────────────────────────────────────── -->
-        @FormRow("BUILD",    "opt_build",   Model.D_Build)
+        @FormRow("BUILD",    "opt_build",   Model.D_Build, Model.IsBuildDisabled)
 
         @* Row 19 – Letter option (IN81): only shown for 1098 form *@
         @if (Model.ShowLetterOption)
@@ -149,8 +150,11 @@
 
 @* Helper – renders one option row (radio + label), matching IBM i input-capable fields *@
 @functions {
-    Microsoft.AspNetCore.Html.IHtmlContent FormRow(string actionValue, string radioId, string description)
+    Microsoft.AspNetCore.Html.IHtmlContent FormRow(string actionValue, string radioId, string description, bool disabled = false)
     {
+        var disabledAttr = disabled ? "disabled" : string.Empty;
+        var disabledClass = disabled ? " text-muted" : string.Empty;
+
         return new Microsoft.AspNetCore.Html.HtmlString($@"
         <div class=""terminal-row row align-items-center py-0"">
             <div class=""col-1"">
@@ -158,10 +162,11 @@
                        class=""form-check-input terminal-opt-radio menuRadio""
                        name=""action""
                        value=""{actionValue}""
-                       id=""{radioId}"" />
+                      id=""{radioId}""
+                      {disabledAttr} />
             </div>
             <div class=""col-11 font-monospace"">
-                <label for=""{radioId}"" class=""mb-0 w-100"" style=""cursor:pointer;"">
+                <label for=""{radioId}"" class=""mb-0 w-100{disabledClass}"" style=""cursor:{(disabled ? "not-allowed" : "pointer")};"">
                     {description}
                 </label>
             </div>
