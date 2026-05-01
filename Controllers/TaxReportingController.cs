@@ -53,6 +53,7 @@ public sealed class TaxReportingController : Controller
     private readonly ILogger<TaxReportingController> _logger;
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IValidationStateService _validationState;
+    private readonly IBuildStateService _buildStateService;
     private readonly IServiceScopeFactory _serviceScopeFactory;
 
     public TaxReportingController(
@@ -65,6 +66,7 @@ public sealed class TaxReportingController : Controller
         ILogger<TaxReportingController> logger,
         IHttpContextAccessor httpContextAccessor,
         IValidationStateService validationState,
+        IBuildStateService buildStateService,
         IServiceScopeFactory serviceScopeFactory)
     {
         _ibmi                = ibmi;
@@ -76,6 +78,7 @@ public sealed class TaxReportingController : Controller
         _logger              = logger;
         _httpContextAccessor = httpContextAccessor;
         _validationState     = validationState;
+        _buildStateService   = buildStateService;
         _serviceScopeFactory = serviceScopeFactory;
     }
 
@@ -260,20 +263,36 @@ public sealed class TaxReportingController : Controller
             return RedirectToAction(nameof(MainMenu));
         }
 
-        // Get session ID for validation state lookup
+        // Get session ID for state lookup
         var sessionId = HttpContext.Session.Id;
-        var validationState = _validationState.GetState(sessionId);
+        _logger.LogInformation("FormMenu GET: SessionId={SessionId}, Form={Form}", sessionId, formName);
 
-        // If validation just completed, move results to TempData for display
+        var validationState = _validationState.GetState(sessionId);
+        var buildState = _buildStateService.GetState(sessionId);
+
+        _logger.LogInformation("FormMenu GET state: IsValidationRunning={IsValidation}, IsBuildRunning={IsBuild}",
+            validationState.IsRunning, buildState.IsRunning);
+
+        // Async completion messages are shown client-side on the current page.
+        // On refresh, clear terminal states without replaying old messages.
         if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ResultMessage))
         {
-            TempData["StatusMessage"] = validationState.ResultMessage;
             _validationState.ClearValidation(sessionId);
         }
         else if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ErrorMessage))
         {
-            TempData["ErrorMessage"] = validationState.ErrorMessage;
             _validationState.ClearValidation(sessionId);
+        }
+
+        if (!buildState.IsRunning && !string.IsNullOrEmpty(buildState.ResultMessage))
+        {
+            _logger.LogInformation("Build completed with result: {Result}", buildState.ResultMessage);
+            _buildStateService.ClearBuild(sessionId);
+        }
+        else if (!buildState.IsRunning && !string.IsNullOrEmpty(buildState.ErrorMessage))
+        {
+            _logger.LogInformation("Build completed with error: {Error}", buildState.ErrorMessage);
+            _buildStateService.ClearBuild(sessionId);
         }
 
         return View(new FormMenuViewModel
@@ -289,6 +308,8 @@ public sealed class TaxReportingController : Controller
             ErrorMessage    = TempData["ErrorMessage"]  as string,
             SelectedAssociationsDisplay = BuildAssociationsDisplay(),
             IsValidationRunning = validationState.IsRunning,
+            IsBuildRunning = buildState.IsRunning,
+            BuildProgress = buildState.Progress,
             IsBuildDisabled = IsInactiveYear(control),
             BuildDisabledReason = IsInactiveYear(control)
                 ? "Build Tax Records is not available when the selected tax year is inactive."
@@ -341,25 +362,41 @@ public sealed class TaxReportingController : Controller
                     });
 
                 case "CLEAR":
-                    await _clearTaxData.ClearAsync(
+                    var localDeletedRows = await _clearTaxData.ClearAsync(
                         control.TaxYear, formName, selectedAssociations, selectAllAssociations);
-                    TempData["StatusMessage"] = "Tax records cleared in web app and IBM i tables.";
+                    if (localDeletedRows > 0)
+                    {
+                        TempData["StatusMessage"] = $"Tax records cleared in web app. Local rows deleted: {localDeletedRows}.";
+                    }
+                    else
+                    {
+                        TempData["ErrorMessage"] = "No local SQLite tax records found to clear.";
+                    }
+                    TempData.Keep();  // Explicitly keep TempData for redirect
                     break;
 
                 case "BUILD":
                     if (IsInactiveYear(control))
                     {
                         TempData["ErrorMessage"] = "Build Tax Records is disabled for inactive tax years.";
+                        TempData.Keep();
                         break;
                     }
 
-                    // Build tax records from all associations by default.
-                    selectedAssociations = new List<string>();
-                    selectAllAssociations = true;
-                    await _buildTaxData.BuildAsync(
-                        control.TaxYear, formName, selectedAssociations, selectAllAssociations);
-                    TempData["StatusMessage"] = "Tax records built in web app and staged in SQLite.";
-                    break;
+                    // Force a fresh association selection for each build request
+                    // so we do not silently reuse stale ALL/session state.
+                    HttpContext.Session.SetString("BuildSelectionPending", "1");
+                    HttpContext.Session.Remove("BuildSelectionConfirmed");
+                    HttpContext.Session.Remove("SelectedAssociations");
+
+                    // Always route BUILD through association selection screen.
+                    return RedirectToAction("Index", "AssociationSelect", new
+                    {
+                        returnAction = "BuildAction",
+                        returnController = "TaxReporting",
+                        taxYear = control.TaxYear,
+                        formName
+                    });
 
                 case "SUMMARY":
                     // TX9520 is an interactive program replaced by SummaryController.
@@ -367,7 +404,7 @@ public sealed class TaxReportingController : Controller
                     return RedirectToAction("Index", "Summary");
 
                 case "PRTDTL":
-                    return RedirectToAction(nameof(DetailReport));
+                    return RedirectToAction(nameof(DetailReportSummary));
 
                 case "PRTEXC":
                     return RedirectToAction(nameof(ExclusionReport));
@@ -386,6 +423,7 @@ public sealed class TaxReportingController : Controller
 
                 default:
                     TempData["ErrorMessage"] = "No action was selected.";
+                    TempData.Keep();  // Explicitly keep TempData for redirect
                     break;
             }
         }
@@ -394,6 +432,7 @@ public sealed class TaxReportingController : Controller
             _logger.LogError(ex, "Error executing action {Action} for form {Form}",
                 action, formName);
             TempData["ErrorMessage"] = $"IBM i error during {action}: {ex.Message}";
+            TempData.Keep();  // Explicitly keep TempData for redirect
         }
 
         return RedirectToAction(nameof(FormMenu));
@@ -502,15 +541,167 @@ public sealed class TaxReportingController : Controller
         return RedirectToAction(nameof(FormMenu));
     }
 
+    [HttpGet]
+    public async Task<IActionResult> BuildAction(string? taxYear, string? formName)
+    {
+        var control = GetSessionControl();
+        var resolvedFormName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (string.IsNullOrWhiteSpace(resolvedFormName) && !string.IsNullOrWhiteSpace(formName))
+        {
+            resolvedFormName = formName.Trim();
+            HttpContext.Session.SetString(SessionKeyForm, resolvedFormName);
+            if (FormDescriptions.TryGetValue(resolvedFormName, out var desc))
+                HttpContext.Session.SetString(SessionKeyFormDesc, desc);
+        }
+
+        if (control is null && !string.IsNullOrWhiteSpace(taxYear))
+        {
+            try
+            {
+                var controlFromYear = await _ibmi.GetTaxControlAsync(taxYear.Trim());
+                if (controlFromYear is not null)
+                {
+                    control = controlFromYear;
+                    HttpContext.Session.SetString(SessionKeyControl,
+                        JsonSerializer.Serialize(controlFromYear));
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Unable to restore tax control context from route tax year {TaxYear}", taxYear);
+            }
+        }
+
+        if (control is null || string.IsNullOrEmpty(resolvedFormName))
+        {
+            _logger.LogWarning("BuildAction: Missing context. Control={Control}, FormName={FormName}",
+                control?.TaxYear ?? "NULL", resolvedFormName ?? "NULL");
+            return RedirectToAction(nameof(MainMenu));
+        }
+
+        // BuildAction must only execute after a fresh confirmation from AssociationSelect screen.
+        var buildSelectionConfirmed = string.Equals(
+            HttpContext.Session.GetString("BuildSelectionConfirmed") ?? string.Empty,
+            "1",
+            StringComparison.OrdinalIgnoreCase);
+        if (!buildSelectionConfirmed)
+        {
+            HttpContext.Session.SetString("BuildSelectionPending", "1");
+            TempData["ErrorMessage"] = "Please select associations before starting Build Tax Records.";
+            return RedirectToAction("Index", "AssociationSelect", new
+            {
+                returnAction = "BuildAction",
+                returnController = "TaxReporting",
+                taxYear = control.TaxYear,
+                formName = resolvedFormName
+            });
+        }
+
+        // Consume confirmation so stale selections cannot auto-run future builds.
+        HttpContext.Session.Remove("BuildSelectionConfirmed");
+        HttpContext.Session.Remove("BuildSelectionPending");
+
+        // Build must use an explicit selection from AssociationSelect screen.
+        var selectedRaw = HttpContext.Session.GetString("SelectedAssociations");
+        if (string.IsNullOrWhiteSpace(selectedRaw))
+        {
+            TempData["ErrorMessage"] = "Please select one or more associations (or ALL) before starting build.";
+            return RedirectToAction("Index", "AssociationSelect", new
+            {
+                returnAction = "BuildAction",
+                returnController = "TaxReporting",
+                taxYear = control.TaxYear,
+                formName = resolvedFormName
+            });
+        }
+
+        if (IsInactiveYear(control))
+        {
+            TempData["ErrorMessage"] = "Build Tax Records is disabled for inactive tax years.";
+            return RedirectToAction(nameof(FormMenu));
+        }
+
+        var selectedAssociations = GetSelectedAssociationCodes();
+        var selectAllAssociations = AreAllAssociationsSelected();
+        var sessionId = HttpContext.Session.Id;
+        var currentState = _buildStateService.GetState(sessionId);
+
+        if (currentState.IsRunning)
+        {
+            TempData["StatusMessage"] = "Build is already in progress. Please wait for completion.";
+            return RedirectToAction(nameof(FormMenu));
+        }
+
+        _logger.LogInformation("BuildAction: Starting background build for TaxYear={TaxYear}, Form={Form}, SessionId={SessionId}, SelectAll={SelectAll}, AssocCount={AssocCount}",
+            control.TaxYear, resolvedFormName, sessionId, selectAllAssociations, selectedAssociations.Count);
+
+        var scopeDisplay = selectAllAssociations
+            ? "All associations"
+            : string.Join(", ", selectedAssociations);
+
+        _buildStateService.StartBuild(sessionId, scopeDisplay);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                using var scope = _serviceScopeFactory.CreateScope();
+                var scopedBuildTaxData = scope.ServiceProvider.GetRequiredService<IBuildTaxDataService>();
+                var scopedBuildState = scope.ServiceProvider.GetRequiredService<IBuildStateService>();
+
+                var progress = new Progress<int>(percent =>
+                {
+                    scopedBuildState.UpdateProgress(sessionId, percent);
+                });
+
+                var stagedCount = await scopedBuildTaxData.BuildAsync(
+                    control.TaxYear,
+                    resolvedFormName,
+                    selectedAssociations,
+                    selectAll: selectAllAssociations,
+                    progress);
+
+                if (stagedCount > 0)
+                {
+                    var resultMsg = $"Build completed. {stagedCount} tax record(s) staged in SQLite.";
+                    scopedBuildState.CompleteBuild(sessionId, resultMsg);
+                }
+                else
+                {
+                    var failMsg = "Build completed with 0 staged records. Check source data, selected form, and IBM i connectivity.";
+                    scopedBuildState.FailBuild(sessionId, failMsg);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "BuildAction background task failed for TaxYear={TaxYear}, Form={FormName}, SessionId={SessionId}",
+                    control.TaxYear, resolvedFormName, sessionId);
+
+                using var scope = _serviceScopeFactory.CreateScope();
+                var scopedBuildState = scope.ServiceProvider.GetRequiredService<IBuildStateService>();
+                scopedBuildState.FailBuild(sessionId, $"Build failed: {ex.Message}");
+            }
+        });
+
+        TempData["StatusMessage"] = selectAllAssociations
+            ? "Build started for all associations. Progress is shown below."
+            : $"Build started for associations: {string.Join(", ", selectedAssociations)}.";
+
+        return RedirectToAction(nameof(FormMenu));
+    }
+
     /// <summary>
     /// API endpoint to check validation status (for AJAX polling)
     /// </summary>
     [HttpGet]
     [Route("TaxReporting/GetValidationStatus")]
+    [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
     public IActionResult GetValidationStatus()
     {
         var sessionId = HttpContext.Session.Id;
         var state = _validationState.GetState(sessionId);
+        var nowUtc = DateTime.UtcNow;
 
         return Json(new
         {
@@ -518,8 +709,75 @@ public sealed class TaxReportingController : Controller
             progress = state.Progress,
             result = state.ResultMessage,
             error = state.ErrorMessage,
-            timestamp = DateTime.UtcNow
+            lastUpdated = state.LastUpdated,
+            ageSeconds = Math.Max(0, (int)(nowUtc - state.LastUpdated).TotalSeconds),
+            timestamp = nowUtc
         });
+    }
+
+    [HttpGet]
+    [Route("TaxReporting/GetBuildStatus")]
+    [ResponseCache(Duration = 0, Location = ResponseCacheLocation.None, NoStore = true)]
+    public IActionResult GetBuildStatus()
+    {
+        var sessionId = HttpContext.Session.Id;
+        var hasState = _buildStateService.HasState(sessionId);
+        var state = _buildStateService.GetState(sessionId);
+        var nowUtc = DateTime.UtcNow;
+
+        _logger.LogDebug("GetBuildStatus poll: SessionId={SessionId}, IsRunning={IsRunning}, Progress={Progress}%",
+            sessionId, state.IsRunning, state.Progress);
+
+        return Json(new
+        {
+            hasState,
+            isRunning = state.IsRunning,
+            progress = state.Progress,
+            scopeDisplay = state.ScopeDisplay,
+            result = state.ResultMessage,
+            error = state.ErrorMessage,
+            lastUpdated = state.LastUpdated,
+            ageSeconds = Math.Max(0, (int)(nowUtc - state.LastUpdated).TotalSeconds),
+            timestamp = nowUtc
+        });
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> DetailReportSummary()
+    {
+        var control = GetSessionControl();
+        var formName = HttpContext.Session.GetString(SessionKeyForm);
+
+        if (control is null || string.IsNullOrEmpty(formName))
+            return RedirectToAction(nameof(MainMenu));
+
+        try
+        {
+            var summary = await _reportService.GetDetailReportSummaryAsync(
+                control.TaxYear,
+                formName,
+                new List<string>(),
+                selectAll: true);
+
+            var viewModel = new DetailReportSummaryViewModel
+            {
+                TaxYear = control.TaxYear,
+                FormName = formName,
+                FormDescription = FormDescriptions.TryGetValue(formName, out var desc) ? desc : "Unknown",
+                ScreenTitle = $"Detail Report Summary - {formName}",
+                ProgramName = "TX9501",
+                TotalRecordCount = summary.TotalCount,
+                AssociationSummaries = summary.Associations
+            };
+
+            return View(viewModel);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading detail report summary");
+            TempData["ErrorMessage"] = $"Error loading detail report: {ex.Message}";
+            return RedirectToAction(nameof(FormMenu));
+        }
     }
 
     [HttpGet]
@@ -666,9 +924,14 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            // Get all associations that have error records
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            
+            // Get all associations that have error records with timeout protection
             var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
                 control.TaxYear, formName);
+
+            sw.Stop();
+            _logger.LogInformation("ErrorReport: GetDistinctAssociationsWithErrors completed in {Elapsed}ms", sw.ElapsedMilliseconds);
 
             var selectedAssociations = associationsWithErrors;
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
@@ -679,6 +942,7 @@ public sealed class TaxReportingController : Controller
             }
 
             // Show error records from associations that have errors
+            sw.Restart();
             var paged = await _reportService.GetDetailReportPageAsync(
                 control.TaxYear,
                 formName,
@@ -687,6 +951,8 @@ public sealed class TaxReportingController : Controller
                 page,
                 ReportPageSize,
                 TaxDetailListMode.Error);
+            sw.Stop();
+            _logger.LogInformation("ErrorReport: GetDetailReportPageAsync completed in {Elapsed}ms with {Count} items", sw.ElapsedMilliseconds, paged.Items.Count);
 
             ApplyErrorDescriptions(paged.Items, formName);
 
@@ -703,6 +969,12 @@ public sealed class TaxReportingController : Controller
                 paged,
                 selectedAssociationFilter,
                 availableAssociationFilters));
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning("ErrorReport: Query timeout for form {Form}", formName);
+            TempData["ErrorMessage"] = "Error report query timed out. Please try filtering by a specific association or try again later.";
+            return RedirectToAction(nameof(FormMenu));
         }
         catch (Exception ex)
         {
@@ -892,6 +1164,7 @@ public sealed class TaxReportingController : Controller
 
         try
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             var selectedAssociations = GetSelectedAssociationCodes();
             var selectAllAssociations = AreAllAssociationsSelected();
             var selectedAssociationFilter = NormalizeAssociationCode(assoc);
@@ -902,17 +1175,23 @@ public sealed class TaxReportingController : Controller
                 selectAllAssociations = false;
             }
 
+            _logger.LogInformation("Letters: Starting page={Page} assoc={Assoc}", page, assoc);
+
+            sw.Restart();
             var paged = await _reportService.GetLetterCandidatesPageAsync(
                 control.TaxYear,
                 selectedAssociations,
                 selectAllAssociations,
                 page,
                 ReportPageSize);
+            _logger.LogInformation("Letters: GetLetterCandidatesPageAsync completed in {Elapsed}ms", sw.ElapsedMilliseconds);
 
+            sw.Restart();
             var allRowsForFilters = await _reportService.GetLetterCandidatesAsync(
                 control.TaxYear,
                 GetSelectedAssociationCodes(),
                 AreAllAssociationsSelected());
+            _logger.LogInformation("Letters: GetLetterCandidatesAsync completed in {Elapsed}ms", sw.ElapsedMilliseconds);
 
             var availableAssociationFilters = BuildAvailableAssociationFilters(
                 allRowsForFilters.Select(r => r.Asa),
@@ -1750,5 +2029,35 @@ public sealed class TaxReportingController : Controller
         }
 
         return string.Join(" -> ", chain);
+    }
+
+    [HttpGet]
+    [Route("TaxReporting/HealthCheck")]
+    public async Task<IActionResult> HealthCheck()
+    {
+        var result = new Dictionary<string, object>();
+
+        try
+        {
+            // Try to get a scoped TaxDetailSourceService to test the connection
+            using var scope = _serviceScopeFactory.CreateScope();
+            var sourceService = scope.ServiceProvider.GetRequiredService<TaxDetailSourceService>();
+            
+            // Query LNMASTR to get record count
+            var records = await sourceService.QueryLoanMasterAsync(2025, "TXLIB", "001");
+            result["LnmastrCount"] = records.Count;
+            result["DdmastrQueried"] = true;
+            
+            result["Status"] = "SUCCESS";
+            result["Message"] = $"LNMASTR returned {records.Count} records";
+        }
+        catch (Exception ex)
+        {
+            result["Status"] = "FAILED";
+            result["Error"] = ex.Message;
+            result["InnerError"] = ex.InnerException?.Message ?? "";
+        }
+
+        return Json(result);
     }
 }

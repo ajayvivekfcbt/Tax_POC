@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tx9501_NetApp\\.tmp\\DbProbe\\DbProbe.csproj": {}
+    "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tax_POC\\.tmp\\DbProbe\\DbProbe.csproj": {}
   },
   "projects": {
-    "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tx9501_NetApp\\.tmp\\DbProbe\\DbProbe.csproj": {
+    "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tax_POC\\.tmp\\DbProbe\\DbProbe.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tx9501_NetApp\\.tmp\\DbProbe\\DbProbe.csproj",
+        "projectUniqueName": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tax_POC\\.tmp\\DbProbe\\DbProbe.csproj",
         "projectName": "DbProbe",
-        "projectPath": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tx9501_NetApp\\.tmp\\DbProbe\\DbProbe.csproj",
+        "projectPath": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tax_POC\\.tmp\\DbProbe\\DbProbe.csproj",
         "packagesPath": "C:\\Users\\apillai0418\\.nuget\\packages\\",
-        "outputPath": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tx9501_NetApp\\.tmp\\DbProbe\\obj\\",
+        "outputPath": "C:\\Users\\apillai0418\\Desktop\\TAX_POC\\Tax_POC\\.tmp\\DbProbe\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\apillai0418\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -65,7 +65,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.202/PortableRuntimeIdentifierGraph.json",
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json",
           "packagesToPrune": {
             "Microsoft.CSharp": "(,4.7.32767]",
             "Microsoft.VisualBasic": "(,10.4.32767]",

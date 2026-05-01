@@ -39,33 +39,40 @@
 
     <hr class="terminal-rule" />
 
+    <!-- Single message area -->
+    <div id="messageHost">
     @if (!string.IsNullOrEmpty(Model.ErrorMessage))
     {
-        <div class="alert alert-danger py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #dc3545;">
-            <strong>❌ Error:</strong> @Model.ErrorMessage
+        <div class="alert alert-danger py-3 px-4 font-monospace form-menu-message" role="alert" style="font-size: 0.95rem; border-left: 6px solid #dc3545; margin-bottom: 1rem; font-weight: 500;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">⚠️</span>
+            <strong>ERROR:</strong> @Model.ErrorMessage
         </div>
     }
-    @if (!string.IsNullOrEmpty(Model.StatusMessage))
+    else if (!string.IsNullOrEmpty(Model.StatusMessage))
     {
-        <div class="alert alert-success py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #28a745;">
-            @Model.StatusMessage
+        <div class="alert alert-success py-3 px-4 font-monospace form-menu-message" role="alert" style="font-size: 0.95rem; border-left: 6px solid #28a745; margin-bottom: 1rem; font-weight: 500;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">✓</span>
+            <strong>SUCCESS:</strong> @Model.StatusMessage
         </div>
     }
-    @if (Model.IsBuildDisabled && !string.IsNullOrWhiteSpace(Model.BuildDisabledReason))
+    else if (Model.IsBuildDisabled && !string.IsNullOrWhiteSpace(Model.BuildDisabledReason))
     {
-        <div class="alert alert-warning py-2 px-3 font-monospace" style="font-size: 0.95rem; border-left: 4px solid #ffc107;">
+        <div class="alert alert-warning py-3 px-4 font-monospace form-menu-message" role="alert" style="font-size: 0.95rem; border-left: 6px solid #ffc107; margin-bottom: 1rem; font-weight: 500;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">ℹ️</span>
             @Model.BuildDisabledReason
         </div>
     }
-
-    <!-- ── Row 6 – Column headings ──────────────────────────────────────── -->
-    <div class="row terminal-colhdr mt-1 mb-1">
-        <div class="col-1"><span class="text-info fw-bold">Opt</span></div>
-        <div class="col-11"><span class="text-info fw-bold">Description</span></div>
     </div>
+
+    <hr class="terminal-rule" />
 
     <form asp-action="FormMenu" method="post" id="formMenuForm">
         @Html.AntiForgeryToken()
+
+        <div class="terminal-menu-header font-monospace">
+            <span class="terminal-menu-opt-heading">Opt</span>
+            <span class="terminal-menu-desc-heading">Description</span>
+        </div>
 
         <!-- ── Row 7  – Maintain ────────────────────────────────────────── -->
         @FormRow("MAINTAIN", "opt_maintain", Model.D_Maintain)
@@ -145,10 +152,43 @@
                 </p>
             </div>
         </div>
+
+        <!-- Build Progress Indicator (hidden until build runs) -->
+        <div id="buildProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+            <div style="text-align: center; margin-bottom: 15px;">
+                <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
+                    <span class="visually-hidden">Building...</span>
+                </div>
+            </div>
+            <p class="mt-2 font-monospace text-muted" style="text-align: center; margin-bottom: 15px;">
+                <strong>⏳ Build in progress...</strong><br>
+                <small>Please wait while tax records are being built.</small>
+            </p>
+            <p class="mt-1 font-monospace text-muted" style="text-align: center; margin-bottom: 12px; font-size: 0.85rem;">
+                <strong>Selected Associations:</strong>
+                <span id="buildAssociationScopeText">@Model.SelectedAssociationsDisplay</span>
+            </p>
+
+            <div style="margin-top: 15px;">
+                <div class="progress" style="height: 25px;">
+                    <div id="buildProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-success"
+                         role="progressbar"
+                         style="width: 0%; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; font-size: 12px;">
+                        0%
+                    </div>
+                </div>
+                <p class="mt-2 font-monospace text-muted" style="text-align: center; margin: 0; font-size: 0.9rem;">
+                    <span id="buildProgressText">Building records...</span>
+                </p>
+                <p class="mt-1 font-monospace text-muted" style="text-align: center; margin: 0; font-size: 0.8rem;">
+                    <span id="buildLastUpdateText">Last status update: waiting...</span>
+                </p>
+            </div>
+        </div>
     </form>
 </div>
 
-@* Helper – renders one option row (radio + label), matching IBM i input-capable fields *@
+@* Helper – renders one option row (radio + description), matching IBM i input-capable fields *@
 @functions {
     Microsoft.AspNetCore.Html.IHtmlContent FormRow(string actionValue, string radioId, string description, bool disabled = false)
     {
@@ -156,20 +196,18 @@
         var disabledClass = disabled ? " text-muted" : string.Empty;
 
         return new Microsoft.AspNetCore.Html.HtmlString($@"
-        <div class=""terminal-row row align-items-center py-0"">
-            <div class=""col-1"">
+        <div class=""terminal-row terminal-menu-row"">
+            <span class=""terminal-menu-opt-cell"">
                 <input type=""radio""
                        class=""form-check-input terminal-opt-radio menuRadio""
                        name=""action""
                        value=""{actionValue}""
-                      id=""{radioId}""
-                      {disabledAttr} />
-            </div>
-            <div class=""col-11 font-monospace"">
-                <label for=""{radioId}"" class=""mb-0 w-100{disabledClass}"" style=""cursor:{(disabled ? "not-allowed" : "pointer")};"">
-                    {description}
-                </label>
-            </div>
+                       id=""{radioId}""
+                       {disabledAttr} />
+            </span>
+            <label for=""{radioId}"" class=""terminal-menu-desc font-monospace mb-0{disabledClass}"" style=""cursor:{(disabled ? "not-allowed" : "pointer")};"">
+                {description}
+            </label>
         </div>");
     }
 }
@@ -178,15 +216,50 @@
 <script>
 // Track validation polling state
 let validationPollingInterval = null;
-let isValidationRunning = @(Model.IsValidationRunning ? "true" : "false");
+let isValidationRunning = @(Model.IsValidationRunning.ToString().ToLower());
+let buildPollingInterval = null;
+let isBuildRunning = @(Model.IsBuildRunning.ToString().ToLower());
+let initialBuildProgress = @Model.BuildProgress;
+const buildInProgressStorageKey = 'taxpoc.build.inProgress';
+const hasBuildStartStatus = @((Model.StatusMessage?.Contains("Build started", StringComparison.OrdinalIgnoreCase) ?? false).ToString().ToLower());
+const buildPollIntervalMs = 1000;
+const buildStaleThresholdSeconds = 15;
+let lastBuildProgressValue = -1;
+let buildUnchangedPollCount = 0;
+let buildPollFailureCount = 0;
+const buildPollFailureThreshold = 8;
 
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('FormMenu page loaded. isBuildRunning=', isBuildRunning, 'isValidationRunning=', isValidationRunning);
+    const hasBuildMarker = window.localStorage && localStorage.getItem(buildInProgressStorageKey) === '1';
+    
     // If validation was already running when page loaded, start polling
     if (isValidationRunning) {
+        console.log('Starting VALIDATION polling on page load');
         disableMenuOptions();
         showValidationProgress();
         startValidationPolling();
     }
+
+    if (isBuildRunning || hasBuildStartStatus) {
+        console.log('Starting BUILD polling on page load');
+        isBuildRunning = true;
+        disableMenuOptions();
+        showBuildProgress();
+        const startupProgress = Math.max(1, Math.min(Math.max(initialBuildProgress || 0, 0), 100));
+        updateBuildProgress(startupProgress, 'Initializing build... waiting for first status update');
+        startBuildPolling();
+    } else if (hasBuildMarker) {
+        // Recover from redirect/session race without showing stale progress UI.
+        console.log('Found BUILD marker; probing status before showing progress UI');
+        showBuildProgress();
+        updateBuildProgress(1, 'Initializing build... waiting for first status update');
+        disableMenuOptions();
+        startBuildPolling();
+    }
+
+    // Always do a one-time status probe to recover from redirect/session race conditions.
+    checkBuildStatus();
 });
 
 function validateAction() {
@@ -196,9 +269,16 @@ function validateAction() {
         return false;
     }
     
-    // If user selects EDIT (validation), disable options immediately
-    if (selected.value === 'EDIT') {
-        console.log('Validation selected - will disable options after redirect');
+    console.log('Form action selected:', selected.value);
+    
+    // For BUILD, redirect to AssociationSelect instead of submitting the form directly
+    if (selected.value === 'BUILD') {
+        console.log('BUILD action detected - redirecting to AssociationSelect for association selection');
+        disableMenuOptions();
+        // Navigate to AssociationSelect controller
+        // The controller will handle the BuildSelectionPending/Confirmed flow
+        window.location.href = '@Url.Action("Index", "AssociationSelect", new { returnAction = "BuildAction", returnController = "TaxReporting" })';
+        return false;  // Don't submit the form
     }
     
     console.log('Form option selected:', selected.value);
@@ -240,6 +320,68 @@ function showValidationProgress() {
     }
 }
 
+function showBuildProgress() {
+    const progressDiv = document.getElementById('buildProgress');
+    if (progressDiv) {
+        progressDiv.style.display = 'block';
+    }
+}
+
+function hideBuildProgress() {
+    const progressDiv = document.getElementById('buildProgress');
+    if (progressDiv) {
+        progressDiv.style.display = 'none';
+    }
+}
+
+function updateBuildProgress(progressValue, textOverride) {
+    const progress = Math.min(Math.max(progressValue || 0, 0), 100);
+    const progressBar = document.getElementById('buildProgressBar');
+    const progressText = document.getElementById('buildProgressText');
+
+    if (progressBar) {
+        progressBar.style.width = progress + '%';
+        progressBar.textContent = progress + '%';
+    }
+
+    if (progressText) {
+        progressText.textContent = textOverride || `Building records: ${progress}% complete`;
+    }
+}
+
+function formatLocalTime(value) {
+    if (!value) {
+        return new Date().toLocaleTimeString();
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return new Date().toLocaleTimeString();
+    }
+
+    return parsed.toLocaleTimeString();
+}
+
+function setBuildLastUpdateText(prefix, timeValue) {
+    const label = document.getElementById('buildLastUpdateText');
+    if (!label) {
+        return;
+    }
+
+    label.textContent = `${prefix}: ${formatLocalTime(timeValue)}`;
+}
+
+function setBuildAssociationScope(scopeDisplay) {
+    const label = document.getElementById('buildAssociationScopeText');
+    if (!label) {
+        return;
+    }
+
+    if (scopeDisplay && String(scopeDisplay).trim().length > 0) {
+        label.textContent = scopeDisplay;
+    }
+}
+
 function hideValidationProgress() {
     const progressDiv = document.getElementById('validationProgress');
     if (progressDiv) {
@@ -257,6 +399,55 @@ function stopValidationPolling() {
         clearInterval(validationPollingInterval);
         validationPollingInterval = null;
     }
+}
+
+function startBuildPolling() {
+    if (buildPollingInterval) {
+        return;
+    }
+
+    console.log('Starting BUILD status polling...');
+    setBuildLastUpdateText('Last status update', new Date());
+    buildPollingInterval = setInterval(checkBuildStatus, buildPollIntervalMs);
+    checkBuildStatus();
+}
+
+function stopBuildPolling() {
+    console.log('Stopping BUILD status polling...');
+    if (buildPollingInterval) {
+        clearInterval(buildPollingInterval);
+        buildPollingInterval = null;
+    }
+}
+
+function showBuildStoppedAlert(message) {
+    renderFormMessage('warning', `Build stopped: ${message}`);
+}
+
+function renderFormMessage(kind, message) {
+    const host = document.getElementById('messageHost');
+    if (!host) {
+        return;
+    }
+
+    const config = {
+        success: { className: 'alert-success', border: '#28a745', prefix: 'SUCCESS:' },
+        error: { className: 'alert-danger', border: '#dc3545', prefix: 'ERROR:' },
+        warning: { className: 'alert-warning', border: '#ffc107', prefix: '' }
+    };
+
+    const selected = config[kind] || config.success;
+    host.innerHTML = '';
+
+    const alert = document.createElement('div');
+    alert.className = `alert ${selected.className} alert-dismissible fade show py-3 px-4 font-monospace form-menu-message`;
+    alert.setAttribute('role', 'alert');
+    alert.style.fontSize = '0.95rem';
+    alert.style.borderLeft = `6px solid ${selected.border}`;
+    alert.style.marginBottom = '1rem';
+    alert.style.fontWeight = '500';
+    alert.innerHTML = `${selected.prefix ? `<strong>${selected.prefix}</strong> ` : ''}${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+    host.appendChild(alert);
 }
 
 function checkValidationStatus() {
@@ -289,7 +480,9 @@ function checkValidationStatus() {
             // Validation has completed
             stopValidationPolling();
             hideValidationProgress();
-            enableMenuOptions();
+            if (!isBuildRunning) {
+                enableMenuOptions();
+            }
             
             // Set progress to 100% before hiding
             const progressBar = document.getElementById('progressBar');
@@ -300,33 +493,9 @@ function checkValidationStatus() {
             
             // Show completion message
             if (data.result) {
-                const successAlert = document.createElement('div');
-                successAlert.className = 'alert alert-success alert-dismissible fade show py-2 px-3 font-monospace';
-                successAlert.style.fontSize = '0.95rem';
-                successAlert.style.borderLeft = '4px solid #28a745';
-                successAlert.innerHTML = data.result + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-                
-                const formMenu = document.querySelector('.terminal-panel');
-                const firstChild = formMenu.querySelector('.alert, .terminal-header');
-                if (firstChild) {
-                    firstChild.parentNode.insertBefore(successAlert, firstChild);
-                } else {
-                    formMenu.insertBefore(successAlert, formMenu.firstChild);
-                }
+                renderFormMessage('success', data.result);
             } else if (data.error) {
-                const errorAlert = document.createElement('div');
-                errorAlert.className = 'alert alert-danger alert-dismissible fade show py-2 px-3 font-monospace';
-                errorAlert.style.fontSize = '0.95rem';
-                errorAlert.style.borderLeft = '4px solid #dc3545';
-                errorAlert.innerHTML = '<strong>❌ Error:</strong> ' + data.error + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button>';
-                
-                const formMenu = document.querySelector('.terminal-panel');
-                const firstChild = formMenu.querySelector('.alert, .terminal-header');
-                if (firstChild) {
-                    firstChild.parentNode.insertBefore(errorAlert, firstChild);
-                } else {
-                    formMenu.insertBefore(errorAlert, formMenu.firstChild);
-                }
+                renderFormMessage('error', data.error);
             }
             
             isValidationRunning = false;
@@ -335,6 +504,142 @@ function checkValidationStatus() {
     .catch(error => {
         console.error('Error checking validation status:', error);
         // Continue polling on error
+    });
+}
+
+function checkBuildStatus() {
+    console.log('BUILD polling: checking status...');
+    const statusUrl = '@Url.Action("GetBuildStatus", "TaxReporting")' + '?_=' + Date.now();
+
+    fetch(statusUrl, {
+        method: 'GET',
+        cache: 'no-store',
+        headers: {
+            'Accept': 'application/json'
+        }
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Status polling failed: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        buildPollFailureCount = 0;
+        console.log('BUILD status response:', data);
+        setBuildAssociationScope(data.scopeDisplay);
+        setBuildLastUpdateText('Last backend update', data.lastUpdated || data.timestamp);
+        if (data.isRunning) {
+            const progress = Math.min(Math.max(data.progress || 0, 0), 100);
+            const ageSeconds = Number.isFinite(data.ageSeconds) ? data.ageSeconds : 0;
+
+            if (progress === lastBuildProgressValue) {
+                buildUnchangedPollCount += 1;
+            } else {
+                lastBuildProgressValue = progress;
+                buildUnchangedPollCount = 0;
+            }
+
+            console.log('Build is still running, progress:', progress, 'ageSeconds:', ageSeconds);
+            if (!buildPollingInterval) {
+                startBuildPolling();
+            }
+            isBuildRunning = true;
+            if (window.localStorage) {
+                localStorage.setItem(buildInProgressStorageKey, '1');
+            }
+            showBuildProgress();
+            const isStale = ageSeconds >= buildStaleThresholdSeconds;
+            const statusText = (buildUnchangedPollCount >= 5 || isStale)
+                ? `Build is still running (${progress}%). Last backend update ${ageSeconds}s ago.`
+                : `Building records: ${progress}% complete`;
+            updateBuildProgress(progress, statusText);
+            return;
+        }
+
+        // Clear stale marker/UI when no build is active and no completion payload exists.
+        if (!data.result && !data.error) {
+            // App restart/cleanup: client still has in-progress marker but server has no build state.
+            if (window.localStorage && localStorage.getItem(buildInProgressStorageKey) === '1' && data.hasState === false) {
+                localStorage.removeItem(buildInProgressStorageKey);
+                stopBuildPolling();
+                hideBuildProgress();
+                buildUnchangedPollCount = 0;
+                lastBuildProgressValue = -1;
+                isBuildRunning = false;
+                if (!isValidationRunning) {
+                    enableMenuOptions();
+                }
+                showBuildStoppedAlert('Application was restarted or stopped. In-progress build was cleaned up.');
+                return;
+            }
+
+            // Backend status can be temporarily unavailable while the build worker starts
+            // or when cache/session reads lag. Keep showing the waiting UI as long as
+            // the client marker indicates a build attempt is in-flight.
+            if (window.localStorage && localStorage.getItem(buildInProgressStorageKey) === '1') {
+                showBuildProgress();
+                updateBuildProgress(Math.max(1, lastBuildProgressValue > 0 ? lastBuildProgressValue : 1),
+                    'Build is still in progress... waiting for backend update');
+                setBuildLastUpdateText('Waiting for first backend update', new Date());
+                return;
+            }
+
+            if (window.localStorage) {
+                localStorage.removeItem(buildInProgressStorageKey);
+            }
+            stopBuildPolling();
+            hideBuildProgress();
+            buildUnchangedPollCount = 0;
+            lastBuildProgressValue = -1;
+            if (!isValidationRunning) {
+                enableMenuOptions();
+            }
+            isBuildRunning = false;
+            return;
+        }
+
+        console.log('Build has completed');
+        stopBuildPolling();
+        hideBuildProgress();
+        buildUnchangedPollCount = 0;
+        lastBuildProgressValue = -1;
+        if (window.localStorage) {
+            localStorage.removeItem(buildInProgressStorageKey);
+        }
+
+        if (!isValidationRunning) {
+            enableMenuOptions();
+        }
+
+        if (data.result) {
+            setBuildLastUpdateText('Build completed at', data.timestamp);
+            renderFormMessage('success', data.result);
+        } else if (data.error) {
+            setBuildLastUpdateText('Build failed at', data.timestamp);
+            renderFormMessage('error', data.error);
+        }
+
+        isBuildRunning = false;
+    })
+    .catch(error => {
+        console.error('Error checking build status:', error);
+        buildPollFailureCount += 1;
+        setBuildLastUpdateText('Last status check failed (retrying)', new Date());
+
+        // After repeated failures, assume app stopped/unavailable and clean stale in-progress marker.
+        if (buildPollFailureCount >= buildPollFailureThreshold && window.localStorage && localStorage.getItem(buildInProgressStorageKey) === '1') {
+            localStorage.removeItem(buildInProgressStorageKey);
+            stopBuildPolling();
+            hideBuildProgress();
+            buildUnchangedPollCount = 0;
+            lastBuildProgressValue = -1;
+            isBuildRunning = false;
+            if (!isValidationRunning) {
+                enableMenuOptions();
+            }
+            showBuildStoppedAlert('Application is unavailable. In-progress build state was cleared on this screen.');
+        }
     });
 }
 </script>

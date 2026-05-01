@@ -1,0 +1,70 @@
+@model Tx9501.Models.ViewModels.DetailReportSummaryViewModel
+@{
+    ViewData["Title"] = $"Detail Report Summary - {Model.FormName}";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("MM/dd/yy")</span>
+        <span class="fw-bold fs-6">@Model.ScreenTitle</span>
+        <span>@Model.ProgramName</span>
+    </div>
+    <div class="terminal-header d-flex justify-content-between">
+        <span>@DateTime.Now.ToString("HH:mm:ss")</span>
+        <span class="text-info">@Model.FormName - @Model.FormDescription</span>
+        <span>WEB</span>
+    </div>
+
+    <div class="terminal-banner d-flex justify-content-between mt-2">
+        <span>
+            <span class="terminal-label">Tax Year:</span>
+            <span class="terminal-value text-warning">@Model.TaxYear</span>
+        </span>
+        <span>
+            <span class="terminal-label">Total Records:</span>
+            <span class="terminal-value text-warning">@Model.TotalRecordCount</span>
+        </span>
+    </div>
+
+    <div class="terminal-banner text-info mt-2">
+        <span>Select an association to view detailed records</span>
+    </div>
+
+    <div class="table-responsive mt-3">
+        <table class="table table-dark table-sm table-striped font-monospace align-middle">
+            <thead>
+                <tr>
+                    <th>Association</th>
+                    <th style="text-align: right;">Record Count</th>
+                    <th style="text-align: center;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+            @if (Model.AssociationSummaries.Count == 0)
+            {
+                <tr>
+                    <td colspan="3" class="text-center text-muted">No records found</td>
+                </tr>
+            }
+            else
+            {
+                @foreach (var assoc in Model.AssociationSummaries)
+                {
+                    <tr>
+                        <td>@assoc.AssociationCode</td>
+                        <td style="text-align: right;">@assoc.RecordCount.ToString("N0")</td>
+                        <td style="text-align: center;">
+                            <a asp-action="DetailReport" asp-route-assoc="@assoc.AssociationCode" class="btn btn-sm btn-info" title="View details for @assoc.AssociationCode">View</a>
+                        </td>
+                    </tr>
+                }
+            }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="terminal-footer">
+        <a asp-action="FormMenu" class="btn-terminal btn-exit">F12=Back</a>
+        <a asp-action="MainMenu" class="btn-terminal btn-exit">F3=Exit</a>
+    </div>
+</div>

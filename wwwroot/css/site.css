@@ -199,6 +199,50 @@ body {
     padding: 0.4rem 0.1rem;
 }
 
+.terminal-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    color: #38bdf8;
+    font-weight: 700;
+    padding: 0.1rem 0.25rem 0.45rem;
+    border-bottom: 1px solid var(--rule-color);
+}
+
+.terminal-menu-row {
+    gap: 0.7rem;
+    padding: 0.55rem 0.25rem;
+}
+
+.terminal-menu-opt-heading,
+.terminal-menu-opt-cell {
+    width: 2rem;
+    min-width: 2rem;
+}
+
+.terminal-menu-opt-heading {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.terminal-menu-opt-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.terminal-menu-desc-heading,
+.terminal-menu-desc {
+    flex: 1;
+    min-width: 0;
+}
+
+.terminal-menu-desc {
+    line-height: 1.45;
+    padding: 0.05rem 0;
+}
+
 .terminal-row:hover {
     background-color: var(--row-hover);
     border-radius: 4px;

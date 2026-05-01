@@ -1,85 +1,78 @@
 ﻿using Microsoft.Data.Sqlite;
+using System.Diagnostics;
 
-var dbPath = @"..\..\tax_reporting_local.db";
+var dbPath = @"C:\Users\apillai0418\Desktop\TAX_POC\Tax_POC\tax_reporting_local.db";
 var cs = $"Data Source={dbPath}";
 
 using var conn = new SqliteConnection(cs);
 conn.Open();
 
-// First, check count of all records
 using var countCmd = conn.CreateCommand();
 countCmd.CommandText = "SELECT COUNT(*) FROM TaxDetails";
 var totalCount = countCmd.ExecuteScalar();
 Console.WriteLine($"Total TaxDetails records in SQLite: {totalCount}");
 Console.WriteLine();
 
-// Query for member 918308
-Console.WriteLine("=== Searching for member 918308 ===");
-using var cmd = conn.CreateCommand();
-cmd.CommandText = @"
-SELECT Id, TaxYear, Form, Asa, MbrNo, MbrSub, ChangeDate, CreatedAt, UpdatedAt 
-FROM TaxDetails 
-WHERE MbrNo = 918308 
-ORDER BY UpdatedAt DESC";
+var taxYear = "2025";
+var form = "1098";
 
-using var reader = cmd.ExecuteReader();
-if (!reader.HasRows)
+Console.WriteLine($"=== Timing detail summary queries for TaxYear={taxYear}, Form={form} ===");
+
+using var summaryCountCmd = conn.CreateCommand();
+summaryCountCmd.CommandText = @"
+SELECT COUNT(*)
+FROM TaxDetails
+WHERE TaxYear = $taxYear AND Form = $form";
+summaryCountCmd.Parameters.AddWithValue("$taxYear", taxYear);
+summaryCountCmd.Parameters.AddWithValue("$form", form);
+
+var sw = Stopwatch.StartNew();
+var formCount = summaryCountCmd.ExecuteScalar();
+sw.Stop();
+Console.WriteLine($"Filtered count: {formCount} in {sw.ElapsedMilliseconds} ms");
+
+using var summaryAssocCmd = conn.CreateCommand();
+summaryAssocCmd.CommandText = @"
+SELECT Asa, COUNT(*) AS RecordCount
+FROM TaxDetails
+WHERE TaxYear = $taxYear AND Form = $form
+GROUP BY Asa
+ORDER BY Asa";
+summaryAssocCmd.Parameters.AddWithValue("$taxYear", taxYear);
+summaryAssocCmd.Parameters.AddWithValue("$form", form);
+
+sw.Restart();
+using var summaryReader = summaryAssocCmd.ExecuteReader();
+var rows = 0;
+while (summaryReader.Read())
 {
-    Console.WriteLine("No records found for member 918308 in SQLite.");
-}
-else
-{
-    Console.WriteLine("Found records for member 918308:");
-    Console.WriteLine(new string('-', 120));
-    while (reader.Read())
+    rows++;
+    if (rows <= 10)
     {
-        var id = reader["Id"];
-        var taxYear = reader["TaxYear"];
-        var form = reader["Form"];
-        var asa = reader["Asa"];
-        var mbrNo = reader["MbrNo"];
-        var mbrSub = reader["MbrSub"];
-        var changeDate = reader["ChangeDate"];
-        var createdAt = reader["CreatedAt"];
-        var updatedAt = reader["UpdatedAt"];
-        
-        Console.WriteLine($"Id={id} | TaxYear={taxYear} | Form=[{form}] | Asa=[{asa}] | MbrNo={mbrNo} | MbrSub=[{mbrSub}]");
-        Console.WriteLine($"  ChangeDate={changeDate} | CreatedAt={createdAt} | UpdatedAt={updatedAt}");
-        Console.WriteLine();
+        Console.WriteLine($"  {summaryReader["Asa"]}: {summaryReader["RecordCount"]}");
     }
 }
+sw.Stop();
+Console.WriteLine($"Association summary rows: {rows} in {sw.ElapsedMilliseconds} ms");
 
-// Show last 5 records in table (by UpdatedAt)
-Console.WriteLine("\n=== Last 5 records in TaxDetails ===");
-using var recentCmd = conn.CreateCommand();
-recentCmd.CommandText = @"
-SELECT Id, TaxYear, Form, Asa, MbrNo, MbrSub, ChangeDate, CreatedAt, UpdatedAt 
-FROM TaxDetails 
-ORDER BY UpdatedAt DESC 
-LIMIT 5";
+using var pageCmd = conn.CreateCommand();
+pageCmd.CommandText = @"
+SELECT Asa, MbrNo, MbrSub
+FROM TaxDetails
+WHERE TaxYear = $taxYear AND Form = $form
+ORDER BY Asa, MbrNo, MbrSub
+LIMIT 50";
+pageCmd.Parameters.AddWithValue("$taxYear", taxYear);
+pageCmd.Parameters.AddWithValue("$form", form);
 
-using var recentReader = recentCmd.ExecuteReader();
-if (!recentReader.HasRows)
+sw.Restart();
+using var pageReader = pageCmd.ExecuteReader();
+var pageRows = 0;
+while (pageReader.Read())
 {
-    Console.WriteLine("No records in TaxDetails table.");
+    pageRows++;
 }
-else
-{
-    while (recentReader.Read())
-    {
-        var id = recentReader["Id"];
-        var taxYear = recentReader["TaxYear"];
-        var form = recentReader["Form"];
-        var asa = recentReader["Asa"];
-        var mbrNo = recentReader["MbrNo"];
-        var mbrSub = recentReader["MbrSub"];
-        var changeDate = recentReader["ChangeDate"];
-        var createdAt = recentReader["CreatedAt"];
-        var updatedAt = recentReader["UpdatedAt"];
-        
-        Console.WriteLine($"Id={id} | MbrNo={mbrNo} | TaxYear={taxYear} | Form=[{form}]");
-        Console.WriteLine($"  UpdatedAt={updatedAt}");
-    }
-}
+sw.Stop();
+Console.WriteLine($"First page rows: {pageRows} in {sw.ElapsedMilliseconds} ms");
 
 conn.Close();

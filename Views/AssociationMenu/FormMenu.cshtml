@@ -26,14 +26,20 @@
 
     <form asp-controller="AssociationMenu" asp-action="FormMenu" method="post">
         @Html.AntiForgeryToken()
+        <div class="terminal-menu-header font-monospace mt-1 mb-1">
+            <span class="terminal-menu-opt-heading">Opt</span>
+            <span class="terminal-menu-desc-heading">Description</span>
+        </div>
         <div class="form-options">
             @foreach (var act in Model.Actions)
             {
-                <div class="terminal-row">
-                    <label>
-                        <input type="radio" name="SelectedAction" value="@act.ActionCode"
+                <div class="terminal-row terminal-menu-row">
+                    <span class="terminal-menu-opt-cell">
+                        <input type="radio" class="terminal-opt-radio" name="SelectedAction" value="@act.ActionCode"
                                @(Model.SelectedAction == act.ActionCode ? "checked" : "") />
-                        &nbsp;@act.Description
+                    </span>
+                    <label class="terminal-menu-desc font-monospace mb-0" style="cursor:pointer;">
+                        @act.Description
                     </label>
                 </div>
             }

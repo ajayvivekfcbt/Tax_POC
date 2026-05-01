@@ -115,6 +115,12 @@ public class FormMenuViewModel
     /// <summary>True when validation is running in background.</summary>
     public bool IsValidationRunning { get; set; }
 
+    /// <summary>True when build is running in background.</summary>
+    public bool IsBuildRunning { get; set; }
+
+    /// <summary>Current build progress percentage (0-100).</summary>
+    public int BuildProgress { get; set; }
+
     /// <summary>True when BUILD action should be disabled for the selected year.</summary>
     public bool IsBuildDisabled { get; set; }
 

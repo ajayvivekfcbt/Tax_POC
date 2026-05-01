@@ -81,6 +81,23 @@ public class AssociationMenuController : Controller
             return RedirectToAction("FormMenu");
         }
 
+        var selectedForm = HttpContext.Session.GetString("SelectedForm") ?? vm.SelectedForm ?? string.Empty;
+        var taxYear = LoadControl()?.TaxYear ?? vm.TaxYear ?? string.Empty;
+
+        if (string.Equals(vm.SelectedAction, "B", StringComparison.OrdinalIgnoreCase))
+        {
+            HttpContext.Session.SetString("BuildSelectionPending", "1");
+            HttpContext.Session.Remove("BuildSelectionConfirmed");
+            HttpContext.Session.Remove("SelectedAssociations");
+            return RedirectToAction("Index", "AssociationSelect", new
+            {
+                returnAction = "BuildAction",
+                returnController = "TaxReporting",
+                taxYear,
+                formName = selectedForm
+            });
+        }
+
         // Route to TaxReportingController FormMenu POST logic for the same actions
         return RedirectToAction("FormMenu", "TaxReporting");
     }

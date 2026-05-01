@@ -26,13 +26,21 @@
         </span>
     </div>
 
+    <!-- Loading indicator shown during initial load -->
+    <div id="loadingIndicator" style="display: none; text-align: center; padding: 20px; background-color: #f8f9fa; border-radius: 5px; margin-top: 10px;">
+        <div class="spinner-border text-primary" role="status" style="width: 2rem; height: 2rem; margin-bottom: 10px;">
+            <span class="visually-hidden">Loading error report...</span>
+        </div>
+        <p class="text-muted font-monospace">Loading error report data...</p>
+    </div>
+
     <form asp-action="ErrorReport" method="get" class="terminal-row mt-2">
         <input type="hidden" name="page" value="1" />
         <label class="terminal-label mb-0">Association Filter</label>
-        <select id="assoc-filter" name="assoc" class="terminal-input input-sm">
+        <select id="assoc-filter" name="assoc" class="terminal-input input-sm" disabled>
             <option value="">Loading...</option>
         </select>
-        <button type="submit" class="btn-terminal">Apply Filter</button>
+        <button type="submit" class="btn-terminal" id="filterBtn" disabled>Apply Filter</button>
         <a asp-action="ErrorReport" class="btn-terminal btn-exit">Clear</a>
     </form>
 
@@ -114,20 +122,33 @@
 <script>
 (function () {
     var select = document.getElementById('assoc-filter');
+    var filterBtn = document.getElementById('filterBtn');
+    var loadingIndicator = document.getElementById('loadingIndicator');
     var currentValue = '@Html.Raw(Model.SelectedAssociationFilter)';
     
-    // Get all available associations with errors from the server
-    var allAssociations = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableAssociationFilters));
+    // Show loading indicator
+    if (loadingIndicator) loadingIndicator.style.display = 'block';
     
-    // Populate dropdown with all associations that have errors
-    select.innerHTML = '<option value="">All</option>';
-    allAssociations.forEach(function (code) {
-        var opt = document.createElement('option');
-        opt.value = code;
-        opt.textContent = code;
-        if (code.toUpperCase() === currentValue.toUpperCase()) opt.selected = true;
-        select.appendChild(opt);
-    });
+    // Delay population to ensure DOM is ready and show smooth transition
+    setTimeout(function () {
+        // Get all available associations with errors from the server
+        var allAssociations = @Html.Raw(System.Text.Json.JsonSerializer.Serialize(Model.AvailableAssociationFilters));
+        
+        // Populate dropdown with all associations that have errors
+        select.innerHTML = '<option value="">All</option>';
+        allAssociations.forEach(function (code) {
+            var opt = document.createElement('option');
+            opt.value = code;
+            opt.textContent = code;
+            if (code.toUpperCase() === currentValue.toUpperCase()) opt.selected = true;
+            select.appendChild(opt);
+        });
+        
+        // Enable controls and hide loading indicator
+        select.disabled = false;
+        filterBtn.disabled = false;
+        if (loadingIndicator) loadingIndicator.style.display = 'none';
+    }, 500);
 }());
 </script>
 }

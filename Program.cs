@@ -63,11 +63,25 @@ builder.Services.AddDbContext<LocalDbContext>(opts =>
             builder.Environment.IsDevelopment() ||
             builder.Configuration.GetValue<bool>("Diagnostics:EnableEfSensitiveDataLogging")));
 
+builder.Services.AddDbContextFactory<LocalDbContext>(opts =>
+    opts.UseSqlite(builder.Configuration.GetConnectionString("SQLite")
+                   ?? "Data Source=tax_reporting_local.db")
+        .EnableDetailedErrors()
+        .EnableSensitiveDataLogging(
+            builder.Environment.IsDevelopment() ||
+            builder.Configuration.GetValue<bool>("Diagnostics:EnableEfSensitiveDataLogging")));
+
 // Tax domain services
 builder.Services.AddScoped<IYearSelectService, YearSelectService>();
 builder.Services.AddScoped<IAssociationService, AssociationService>();
 builder.Services.AddScoped<IClearTaxDataService, ClearTaxDataService>();
 builder.Services.AddScoped<IBuildTaxDataService, BuildTaxDataService>();
+builder.Services.AddScoped<TaxDetailSourceService>();
+builder.Services.AddScoped<TaxDetailTransformService>();
+builder.Services.AddScoped<TX9515BuildService>();
+builder.Services.AddScoped<TX9540MiscNecService>();
+builder.Services.AddScoped<TX9517PatronageService>();
+builder.Services.AddScoped<TX9526ValidationService>();
 builder.Services.AddScoped<IValidateTaxService, ValidateTaxService>();
 builder.Services.AddScoped<ISummaryService, SummaryService>();
 builder.Services.AddScoped<IMaintainService, MaintainService>();
@@ -77,6 +91,7 @@ builder.Services.AddScoped<ILdapAuthenticationService, LdapAuthenticationService
 
 // Validation state service - thread-safe state management for background validation tasks
 builder.Services.AddSingleton<IValidationStateService, ValidationStateService>();
+builder.Services.AddSingleton<IBuildStateService, BuildStateService>();
 
 // Session support (replaces IBM i interactive program state)
 builder.Services.AddDistributedMemoryCache();
@@ -128,6 +143,21 @@ using (var scope = app.Services.CreateScope())
                 ADD COLUMN [NonRptReason] TEXT NOT NULL DEFAULT '';
             ");
         }
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS [IX_TaxDetails_TaxYear_Form_Asa]
+            ON [TaxDetails] ([TaxYear], [Form], [Asa]);
+        ");
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS [IX_TaxDetails_TaxYear_Form_Asa_MbrNo_MbrSub]
+            ON [TaxDetails] ([TaxYear], [Form], [Asa], [MbrNo], [MbrSub]);
+        ");
+
+        db.Database.ExecuteSqlRaw(@"
+            CREATE INDEX IF NOT EXISTS [IX_TaxAudits_TaxYear_Form_Asa_MbrNo_MbrSub]
+            ON [TaxAudits] ([TaxYear], [Form], [Asa], [MbrNo], [MbrSub]);
+        ");
     }
     finally
     {

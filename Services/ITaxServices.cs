@@ -46,8 +46,9 @@ public interface IClearTaxDataService
     /// <summary>
     /// DELETE rows from TXRDTL and TXRAUD for the given year/form/associations.
     /// Mirrors the SQL DELETE statements in tx9510.
+    /// Returns the number of local SQLite rows deleted.
     /// </summary>
-    Task ClearAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
+    Task<int> ClearAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
 }
 
 /// <summary>
@@ -64,7 +65,7 @@ public interface IBuildTaxDataService
     /// Stage build-source records for the given form into local SQLite.
     /// Source rows are read from IBM i TXRDTL (or local fallback if IBM i is unavailable).
     /// </summary>
-    Task BuildAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
+    Task<int> BuildAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, IProgress<int>? progress = null);
 }
 
 /// <summary>
@@ -131,6 +132,9 @@ public interface IReportService
 
     /// <summary>Return detail-report rows for the web UI, preferring IBM i data and overlaying local edits.</summary>
     Task<IList<TaxDetailRecord>> GetDetailReportAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
+
+    /// <summary>Return association counts for the detail-report entry screen, preferring staged SQLite rows.</summary>
+    Task<(int TotalCount, IList<DetailReportAssociationSummary> Associations)> GetDetailReportSummaryAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll);
 
     /// <summary>Return a paged report list, using staged SQLite rows first and IBM i only when staged rows do not exist.</summary>
     Task<PagedResult<TaxDetailRecord>> GetDetailReportPageAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, int pageNumber, int pageSize, TaxDetailListMode mode);

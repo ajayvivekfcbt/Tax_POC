@@ -28,6 +28,19 @@ public class AssociationSelectController : Controller
         var userId    = User.Identity?.Name ?? "";
         var allAssns  = await _assnSvc.GetAuthorisedAssociationsAsync(userId);
         var selected  = GetCurrentSelection();
+        var cancelTarget = ResolveCancelTarget(returnController, returnAction);
+
+        // For BUILD and EDIT/VALIDATE flows, start with a fresh selection UI
+        // instead of inheriting stale session state (e.g., ALL).
+        var isBuildSelection = string.Equals(returnController, "TaxReporting", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(returnAction, "BuildAction", StringComparison.OrdinalIgnoreCase);
+        var isEditSelection = string.Equals(returnController, "TaxReporting", StringComparison.OrdinalIgnoreCase)
+            && string.Equals(returnAction, "ValidateAction", StringComparison.OrdinalIgnoreCase);
+        
+        if (isBuildSelection || isEditSelection)
+        {
+            selected = new List<string>();
+        }
 
         var vm = new AssociationSelectViewModel
         {
@@ -37,7 +50,9 @@ public class AssociationSelectController : Controller
             ReturnAction    = returnAction ?? "Index",
             ReturnController = returnController ?? "TaxReporting",
             ReturnTaxYear   = (taxYear ?? string.Empty).Trim(),
-            ReturnFormName  = (formName ?? string.Empty).Trim()
+            ReturnFormName  = (formName ?? string.Empty).Trim(),
+            CancelController = cancelTarget.controller,
+            CancelAction     = cancelTarget.action
         };
         return View(vm);
     }
@@ -66,7 +81,14 @@ public class AssociationSelectController : Controller
         if (!string.IsNullOrWhiteSpace(vm.ReturnFormName))
             routeValues["formName"] = vm.ReturnFormName.Trim();
 
-        if (vm.SelectAll)
+        var selectAll = vm.SelectAll;
+        if (Request.HasFormContentType)
+        {
+            // Checkbox boolean binding can vary across browsers/forms; trust posted key presence as fallback.
+            selectAll = selectAll || Request.Form.ContainsKey("SelectAll");
+        }
+
+        if (selectAll)
         {
             HttpContext.Session.SetString("SelectedAssociations", "ALL");
         }
@@ -77,6 +99,21 @@ public class AssociationSelectController : Controller
                 .Where(code => code.Length > 0)
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            if (chosen.Count == 0 && Request.HasFormContentType)
+            {
+                var postedSelected = Request.Form["SelectedCorps"]
+                    .Concat(Request.Form["SelectedCorps[]"])
+                    .Select(code => code?.Trim() ?? string.Empty)
+                    .Where(code => code.Length > 0)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                if (postedSelected.Count > 0)
+                {
+                    chosen = postedSelected;
+                }
+            }
 
             if (chosen.Count == 0)
             {
@@ -92,6 +129,13 @@ public class AssociationSelectController : Controller
 
             HttpContext.Session.SetString("SelectedAssociations",
                 string.Join(",", chosen));
+        }
+
+        var isBuildFlow = targetController.Equals("TaxReporting", StringComparison.OrdinalIgnoreCase)
+            && targetAction.Equals("BuildAction", StringComparison.OrdinalIgnoreCase);
+        if (isBuildFlow)
+        {
+            HttpContext.Session.SetString("BuildSelectionConfirmed", "1");
         }
 
         return RedirectToAction(targetAction, targetController, routeValues);
@@ -148,5 +192,27 @@ public class AssociationSelectController : Controller
         var json = HttpContext.Session.GetString("TaxControl");
         return json is null ? null
             : System.Text.Json.JsonSerializer.Deserialize<TaxControlRecord>(json);
+    }
+
+    private static (string controller, string action) ResolveCancelTarget(string? returnController, string? returnAction)
+    {
+        if (string.Equals(returnController, "TaxReporting", StringComparison.OrdinalIgnoreCase))
+        {
+            if (string.Equals(returnAction, "BuildAction", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(returnAction, "ValidateAction", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(returnAction, "FormMenu", StringComparison.OrdinalIgnoreCase))
+            {
+                return ("TaxReporting", "FormMenu");
+            }
+
+            return ("TaxReporting", "MainMenu");
+        }
+
+        if (string.Equals(returnController, "AssociationMenu", StringComparison.OrdinalIgnoreCase))
+        {
+            return ("AssociationMenu", "FormMenu");
+        }
+
+        return ("TaxReporting", "MainMenu");
     }
 }

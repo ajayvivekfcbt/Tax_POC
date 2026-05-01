@@ -47,9 +47,9 @@
     }
 
     <!-- ── Row 6 – Column headings ──────────────────────────────────────── -->
-    <div class="row terminal-colhdr mt-1 mb-1">
-        <div class="col-1"><span class="text-info fw-bold">Opt</span></div>
-        <div class="col-11"><span class="text-info fw-bold">Description</span></div>
+    <div class="terminal-menu-header font-monospace mt-1 mb-1">
+        <span class="terminal-menu-opt-heading">Opt</span>
+        <span class="terminal-menu-desc-heading">Description</span>
     </div>
 
     <!-- ── Rows 7-13 – Tax form selection (one radio per form) ──────────── -->
@@ -59,8 +59,8 @@
 
         @foreach (var form in Model.TaxForms)
         {
-            <div class="terminal-row row align-items-center py-0">
-                <div class="col-1">
+            <div class="terminal-row terminal-menu-row">
+                <span class="terminal-menu-opt-cell">
                     <!-- Single-char option field – mirrors IBM i B (input capable) field -->
                     <input type="radio"
                            class="form-check-input terminal-opt-radio"
@@ -68,31 +68,27 @@
                            value="@form.FormName"
                            id="opt_@form.FormName.Replace("-","_")"
                            onchange="document.getElementById('selectedFormInput').value=this.value;" />
-                </div>
-                <div class="col-11 font-monospace">
-                    <label for="opt_@form.FormName.Replace("-","_")" class="mb-0 w-100" style="cursor:pointer;">
+                </span>
+                <label for="opt_@form.FormName.Replace("-","_")" class="terminal-menu-desc font-monospace mb-0" style="cursor:pointer;">
                         Work with Form
                         <span class="text-info">@form.FormName</span>
                         &nbsp;-&nbsp;
                         @form.Description
-                    </label>
-                </div>
+                </label>
             </div>
         }
 
         <!-- ── Row 15 – Generate Tax Extract File ───────────────────────── -->
-        <div class="terminal-row row align-items-center py-0 mt-1">
-            <div class="col-1">
+        <div class="terminal-row terminal-menu-row mt-1">
+            <span class="terminal-menu-opt-cell">
                 <input type="radio" class="form-check-input terminal-opt-radio"
                        name="formRadio" value="__EXTRACT__"
                        id="opt_extract"
                        onchange="document.getElementById('selectedFormInput').value='';" />
-            </div>
-            <div class="col-11 font-monospace">
-                <label for="opt_extract" class="mb-0 w-100" style="cursor:pointer;">
-                    Generate Tax Extract File
-                </label>
-            </div>
+            </span>
+            <label for="opt_extract" class="terminal-menu-desc font-monospace mb-0" style="cursor:pointer;">
+                Generate Tax Extract File
+            </label>
         </div>
 
         <hr class="terminal-rule" />

@@ -45,6 +45,22 @@
         <span>Status: @Model.TaxStatus</span>
     </div>
 
+    @* Display any messages from server *@
+    @if (TempData["StatusMessage"] != null)
+    {
+        <div class="alert alert-success py-3 px-4 font-monospace mt-3" role="alert" style="font-size: 0.95rem; border-left: 6px solid #28a745;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">✓</span>
+            <strong>SUCCESS:</strong> @TempData["StatusMessage"]
+        </div>
+    }
+    @if (TempData["ErrorMessage"] != null)
+    {
+        <div class="alert alert-danger py-3 px-4 font-monospace mt-3" role="alert" style="font-size: 0.95rem; border-left: 6px solid #dc3545;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">⚠️</span>
+            <strong>ERROR:</strong> @TempData["ErrorMessage"]
+        </div>
+    }
+
     <form id="maintain-record-form" asp-controller="Maintain" asp-action="Record" method="post">
         @Html.AntiForgeryToken()
         <input type="hidden" asp-for="Mode" />
@@ -55,6 +71,7 @@
         <input type="hidden" asp-for="Record.Asa" />
         <input type="hidden" asp-for="Record.MbrNo" />
         <input type="hidden" asp-for="Record.MbrSub" />
+        <input type="hidden" name="ActionClicked" id="actionClicked" value="" />
 
         <div asp-validation-summary="ModelOnly" class="text-danger mb-2"></div>
 
@@ -132,10 +149,6 @@
                 <div class="terminal-row">
                     <label class="terminal-label">Property Desc. :</label>
                     <input asp-for="Record.SecDesc" class="terminal-input maintain-fill" maxlength="40" />
-                </div>
-                <div class="terminal-row">
-                    <label class="terminal-label">Additional Desc:</label>
-                    <input asp-for="Record.SecOther" class="terminal-input maintain-fill" maxlength="40" />
                 </div>
                 <div class="terminal-row">
                     <label class="terminal-label">Origination Dte:</label>
@@ -222,12 +235,12 @@
         }
 
         <div class="terminal-footer">
-            <button type="submit" class="btn-terminal">Enter=Save</button>
+            <button type="submit" class="btn-terminal" id="saveBtn" onclick="document.getElementById('actionClicked').value='Save';">Enter=Save</button>
             @if (Model.Mode != "ADD")
             {
-                <button type="submit" name="DeletePressed" value="true" class="btn-terminal btn-danger">F14=Delete</button>
+                <button type="submit" class="btn-terminal btn-danger" id="deleteBtn" onclick="document.getElementById('actionClicked').value='Delete';">F14=Delete</button>
             }
-            <button type="submit" name="ExitPressed" value="true" class="btn-terminal btn-exit">F12=Cancel</button>
+            <button type="submit" class="btn-terminal btn-exit" id="exitBtn" onclick="document.getElementById('actionClicked').value='Exit';">F12=Cancel</button>
         </div>
     </form>
 </div>
@@ -238,131 +251,87 @@
     var form = document.getElementById('maintain-record-form');
     if (!form) return;
 
-    var lastSubmitter = null;
-    form.querySelectorAll('button[type="submit"]').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            lastSubmitter = btn;
-        });
-    });
+    var saveBtn = form.querySelector('[id="saveBtn"]');
+    var actionField = document.getElementById('actionClicked');
 
-    function isBlank(value) {
-        return !value || value.trim() === '';
-    }
+    console.log('[MAINTAIN] Script loaded - form:', form.id);
 
-    function readValue(selector) {
-        var el = form.querySelector(selector);
-        return el ? el.value : '';
-    }
+    function validateForm() {
+        console.log('[MAINTAIN] Running validation...');
+        var ssiDn = form.querySelector('[name="Record.SsiDn"]').value.trim();
+        var ssiDc = form.querySelector('[name="Record.SsiDc"]').value.trim();
+        var borrName = form.querySelector('[name="Record.BorrName"]').value.trim();
+        var borrAddr = form.querySelector('[name="Record.BorrAddr"]').value.trim();
+        var borrCity = form.querySelector('[name="Record.BorrCity"]').value.trim();
+        var borrState = form.querySelector('[name="Record.BorrState"]').value.trim();
+        var borrZip = form.querySelector('[name="Record.BorrZip"]').value.trim();
+        var reportToIrs = form.querySelector('[name="Record.ReportToIrs"]').value.trim();
 
-    function clearFieldErrors() {
-        form.querySelectorAll('.client-invalid').forEach(function (el) {
-            el.classList.remove('client-invalid');
-        });
-
-        form.querySelectorAll('[data-valmsg-for]').forEach(function (msg) {
-            if (msg.textContent && msg.textContent.trim().length > 0) {
-                msg.textContent = '';
-            }
-        });
-    }
-
-    function addFieldError(fieldSelector, modelFieldName, message) {
-        var input = form.querySelector(fieldSelector);
-        if (input) {
-            input.classList.add('client-invalid');
-        }
-
-        var span = form.querySelector('[data-valmsg-for="' + modelFieldName + '"]');
-        if (span) {
-            span.textContent = message;
-        }
-    }
-
-    form.addEventListener('submit', function (e) {
-        var submitter = e.submitter || lastSubmitter;
-        if (!submitter) {
-            return;
-        }
-
-        if (submitter.name === 'ExitPressed' || submitter.name === 'DeletePressed') {
-            return;
-        }
-
-        clearFieldErrors();
         var errors = [];
-
-        var ssiDn = readValue('[name="Record.SsiDn"]');
-        var ssiDc = readValue('[name="Record.SsiDc"]');
-        var borrName = readValue('[name="Record.BorrName"]');
-        var borrAddr = readValue('[name="Record.BorrAddr"]');
-        var borrCity = readValue('[name="Record.BorrCity"]');
-        var borrState = readValue('[name="Record.BorrState"]');
-        var borrZip = readValue('[name="Record.BorrZip"]');
-        var reportToIrs = readValue('[name="Record.ReportToIrs"]');
-        var nonRptReason = readValue('[name="Record.NonRptReason"]');
-
-        if (isBlank(ssiDn) || Number(ssiDn) <= 0) {
-            errors.push('SSN/EIN is required.');
-            addFieldError('[name="Record.SsiDn"]', 'Record.SsiDn', 'SSN/EIN is required.');
-        }
-
-        if (isBlank(ssiDc)) {
-            errors.push('Type is required.');
-            addFieldError('[name="Record.SsiDc"]', 'Record.SsiDc', 'Type is required.');
-        }
-
-        if (isBlank(borrName)) {
-            errors.push('Name is required.');
-            addFieldError('[name="Record.BorrName"]', 'Record.BorrName', 'Name is required.');
-        }
-
-        if (isBlank(borrAddr)) {
-            errors.push('Address is required.');
-            addFieldError('[name="Record.BorrAddr"]', 'Record.BorrAddr', 'Address is required.');
-        }
-
-        if (isBlank(borrCity)) {
-            errors.push('City is required.');
-            addFieldError('[name="Record.BorrCity"]', 'Record.BorrCity', 'City is required.');
-        }
-
-        if (isBlank(borrState)) {
-            errors.push('State is required.');
-            addFieldError('[name="Record.BorrState"]', 'Record.BorrState', 'State is required.');
-        }
-
-        if (isBlank(borrZip) || Number(borrZip) <= 0) {
-            errors.push('Zip is required.');
-            addFieldError('[name="Record.BorrZip"]', 'Record.BorrZip', 'Zip is required.');
-        }
-
-        if (isBlank(reportToIrs)) {
-            errors.push('Report to IRS is required.');
-            addFieldError('[name="Record.ReportToIrs"]', 'Record.ReportToIrs', 'Report to IRS is required.');
-        }
-
-        if (String(reportToIrs).toUpperCase() === 'N' && isBlank(nonRptReason)) {
-            errors.push('Non-Report Reason is required when Report to IRS is N.');
-            addFieldError('[name="Record.NonRptReason"]', 'Record.NonRptReason', 'Non-Report Reason is required when Report to IRS is N.');
-        }
+        
+        if (!ssiDn || Number(ssiDn) <= 0) errors.push('SSN/EIN is required.');
+        if (!ssiDc) errors.push('Type is required.');
+        if (!borrName) errors.push('Name is required.');
+        if (!borrAddr) errors.push('Address is required.');
+        if (!borrCity) errors.push('City is required.');
+        if (!borrState) errors.push('State is required.');
+        if (!borrZip || Number(borrZip) <= 0) errors.push('Zip is required.');
+        if (!reportToIrs) errors.push('Report to IRS is required.');
 
         if (errors.length > 0) {
-            var summary = form.querySelector('[data-valmsg-summary="true"] ul');
-            if (summary) {
-                summary.innerHTML = '';
-                errors.forEach(function (msg) {
-                    var li = document.createElement('li');
-                    li.textContent = msg;
-                    summary.appendChild(li);
-                });
-                var summaryContainer = form.querySelector('[data-valmsg-summary="true"]');
-                if (summaryContainer) {
-                    summaryContainer.classList.remove('validation-summary-valid');
-                    summaryContainer.classList.add('validation-summary-errors');
+            console.log('[MAINTAIN] Validation errors:', errors);
+            alert('Please fix the following errors:\n\n' + errors.join('\n'));
+            return false;
+        }
+
+        console.log('[MAINTAIN] Validation passed');
+        return true;
+    }
+
+    // Form submit handler
+    form.addEventListener('submit', function (e) {
+        var action = actionField.value;
+        console.log('[MAINTAIN] Form submit event - ActionClicked:', action);
+
+        if (action === 'Save') {
+            if (!validateForm()) {
+                console.log('[MAINTAIN] Validation failed - preventing submission');
+                e.preventDefault();
+                return false;
+            }
+            console.log('[MAINTAIN] Save validation passed - submitting form');
+        } else {
+            console.log('[MAINTAIN] Action is', action, '- no validation needed');
+        }
+
+        return true;
+    });
+
+    // Save button - validate and submit
+    if (saveBtn) {
+        saveBtn.addEventListener('click', function (e) {
+            console.log('[MAINTAIN] Save button clicked');
+            actionField.value = 'Save';
+            console.log('[MAINTAIN] Set ActionClicked to Save, form will submit');
+            // Don't prevent default - let the form submit
+        });
+    }
+
+    // Enter key in form fields - trigger Save
+    form.addEventListener('keypress', function (e) {
+        if (e.key === 'Enter') {
+            var target = e.target;
+            if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) {
+                if (target.name && target.name.startsWith('Record.')) {
+                    console.log('[MAINTAIN] Enter key in', target.name, '- triggering Save');
+                    e.preventDefault();
+                    
+                    // Set action and submit
+                    actionField.value = 'Save';
+                    console.log('[MAINTAIN] Submitting form with Save action');
+                    form.submit();
                 }
             }
-
-            e.preventDefault();
         }
     });
 })();

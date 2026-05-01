@@ -136,7 +136,7 @@ public class MaintainController : Controller
     public async Task<IActionResult> Record(MaintainRecordViewModel vm)
     {
         // Check F12 Cancel FIRST – allow user to cancel regardless of validation
-        if (vm.ExitPressed)
+        if (vm.ActionClicked == "Exit")
         {
             if (vm.ReturnToErrorReport)
                 return RedirectToAction("ErrorReport", "TaxReporting");
@@ -144,16 +144,24 @@ public class MaintainController : Controller
         }
 
         // Handle delete before validation; delete only applies to staged SQLite records.
-        if (vm.DeletePressed)
+        if (vm.ActionClicked == "Delete")
         {
             var deleted = await _maintainSvc.DeleteRecordAsync(vm.Record);
             TempData["StatusMessage"] = deleted
                 ? "Record deleted from local staging data."
                 : "Delete applies only to staged SQLite records. Record was not found in local staging data.";
+            TempData.Keep();
+            return RedirectToAction("Select");
+        }
+
+        // Only proceed with validation and save if Save button was clicked
+        if (vm.ActionClicked != "Save")
+        {
             return RedirectToAction("Select");
         }
 
         // Clear validation errors for optional fields
+        ModelState.Remove("Record.AsaRpt");      // Report as Assn - optional
         ModelState.Remove("Record.CorrIn");
         ModelState.Remove("Record.MbrSub");
         ModelState.Remove("Record.SecAddr");
@@ -167,11 +175,27 @@ public class MaintainController : Controller
             return View(vm);
         }
 
-        if (vm.Mode.Equals("ADD", StringComparison.OrdinalIgnoreCase))
-            await _maintainSvc.AddRecordAsync(vm.Record);
-        else
-            await _maintainSvc.UpdateRecordAsync(vm.Record);
-        TempData["StatusMessage"] = vm.Mode == "ADD" ? "Record added." : "Record updated.";
+        try
+        {
+            if (vm.Mode.Equals("ADD", StringComparison.OrdinalIgnoreCase))
+            {
+                await _maintainSvc.AddRecordAsync(vm.Record);
+                TempData["StatusMessage"] = "Record added successfully.";
+            }
+            else
+            {
+                await _maintainSvc.UpdateRecordAsync(vm.Record);
+                TempData["StatusMessage"] = "Record updated successfully.";
+            }
+            TempData.Keep();
+        }
+        catch (Exception ex)
+        {
+            TempData["ErrorMessage"] = $"Error saving record: {ex.Message}";
+            TempData.Keep();
+            return View(vm);
+        }
+        
         return RedirectToAction("Select");
     }
 

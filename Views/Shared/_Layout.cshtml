@@ -11,19 +11,34 @@
     <link rel="stylesheet" href="~/css/site.css" />
 </head>
 <body>
-    <nav class="navbar navbar-dark px-4 py-2">
-        <span class="navbar-brand">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                 stroke-width="2" style="vertical-align:-3px;margin-right:6px;">
-                <rect x="3" y="3" width="7" height="7" rx="1"/>
-                <rect x="14" y="3" width="7" height="7" rx="1"/>
-                <rect x="3" y="14" width="7" height="7" rx="1"/>
-                <rect x="14" y="14" width="7" height="7" rx="1"/>
-            </svg>
-            Tax Reporting System
-        </span>
-        <span class="nav-badge">TX9501 &bull; IBM i</span>
-    </nav>
+    <!-- ═════════════════════════════════════════════════════════════════════════
+         HEADER – Company Branding
+         ═════════════════════════════════════════════════════════════════════════ -->
+    <header style="background-color: #003f87; border-bottom: 4px solid #90c93e; padding: 16px 20px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+            <!-- Company Logo & Name (Left) -->
+            <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
+                <img src="~/images/download.jpg" alt="Farm Credit Bank of Texas" 
+                     style="height: 60px; width: auto; object-fit: contain;" />
+                <div style="line-height: 1.3;">
+                    <div style="font-weight: 600; font-size: 1.1rem; color: #fff;">Farm Credit</div>
+                    <div style="font-weight: 400; font-size: 0.9rem; color: #90c93e;">Bank of Texas</div>
+                </div>
+            </div>
+
+            <!-- Page Title (Center) -->
+            <div style="text-align: center; flex: 1; min-width: 200px;">
+                <div style="font-size: 1.1rem; font-weight: 600; color: #fff;">@ViewData["Title"]</div>
+                <div style="font-size: 0.85rem; color: #90c93e;">Tax Reporting System</div>
+            </div>
+
+            <!-- System Info (Right) -->
+            <div style="text-align: right; color: #90c93e; font-size: 0.9rem; flex-shrink: 0;">
+                <div style="font-weight: 600;">TX9501</div>
+                <div style="font-size: 0.85rem;">IBM i System</div>
+            </div>
+        </div>
+    </header>
 
     <main class="container-fluid px-3 py-3" style="max-width:100%;overflow-x:hidden;">
         @RenderBody()
@@ -34,8 +49,13 @@
         Browser navigation is disabled. Use screen buttons.
     </div>
 
-    <footer class="text-center small py-2 border-top">
-        IBM i Back-End &bull; ASP.NET Core Front-End
+    <footer class="text-center small py-3 border-top mt-4" style="background-color: #f8f9fa; color: #666;">
+        <div style="margin-bottom: 0.5rem;">
+            <strong>Farm Credit Bank of Texas</strong> — Tax Reporting System
+        </div>
+        <div style="font-size: 0.85rem; color: #999;">
+            IBM i Back-End &bull; ASP.NET Core Front-End &bull; TX9501 System
+        </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"

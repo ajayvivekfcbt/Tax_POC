@@ -13,6 +13,18 @@
         Select one or more associations, or check <strong>ALL</strong>.
     </div>
 
+    @if (Model.Associations.Count == 0)
+    {
+        <div class="alert alert-warning py-2 px-3 font-monospace" style="margin-top:.5rem; color: red; font-weight: bold;">
+            <strong>⚠ DEBUG: No associations loaded!</strong><br/>
+            Associations count: @Model.Associations.Count<br/>
+            SelectedCorps count: @Model.SelectedCorps.Count<br/>
+            SelectAll: @Model.SelectAll<br/>
+            ReturnAction: @Model.ReturnAction<br/>
+            ReturnController: @Model.ReturnController
+        </div>
+    }
+
     @if (TempData["ErrorMessage"] is string errorMessage && !string.IsNullOrWhiteSpace(errorMessage))
     {
         <div class="alert alert-danger py-2 px-3 font-monospace" style="margin-top:.5rem;">
@@ -29,13 +41,15 @@
 
         <div class="terminal-row" style="margin-bottom:.75rem;">
             <label>
-                <input type="checkbox" name="SelectAll" value="true"
-                       @(Model.SelectAll ? "checked" : "") id="chkAll" />
+                <input type="checkbox" id="chkAll" name="SelectAll"
+                       @(Model.SelectAll ? "checked" : "") />
                 &nbsp;<strong>ALL Associations</strong>
             </label>
         </div>
 
         <div class="table-responsive-nowrap">
+        @if (Model.Associations.Count > 0)
+        {
         <table class="terminal-table" id="assnTable">
             <thead>
                 <tr>
@@ -63,25 +77,87 @@
                 }
             </tbody>
         </table>
+        }
+        else
+        {
+        <p class="text-muted" style="padding: 1rem;">No associations available for selection.</p>
+        }
         </div>
 
         <div class="terminal-footer">
             <button type="submit" class="btn-terminal">Enter=Select</button>
+            <a asp-controller="@Model.CancelController"
+               asp-action="@Model.CancelAction"
+               asp-route-taxYear="@Model.ReturnTaxYear"
+               asp-route-formName="@Model.ReturnFormName"
+               class="btn-terminal">F12=Cancel</a>
             <a asp-controller="TaxReporting" asp-action="Exit" class="btn-terminal btn-exit">F3=Exit</a>
         </div>
     </form>
 </div>
 
-@section Scripts {
 <script>
+console.log('*** Script tag loaded ***');
+
+// Run immediately since script is at end of body
+(function() {
+    console.log('*** IIFE executing ***');
+    
     var chkAll   = document.getElementById('chkAll');
     var assnTbl  = document.getElementById('assnTable');
-    var assnChks = assnTbl.querySelectorAll('.assn-chk');
+    var assnChks = assnTbl ? assnTbl.querySelectorAll('.assn-chk') : [];
+    var form     = document.querySelector('form');
 
+    console.log('Initializing association select. Found', assnChks.length, 'checkboxes');
+    console.log('chkAll exists:', !!chkAll, 'assnTbl exists:', !!assnTbl, 'form exists:', !!form);
+
+    if (!chkAll || !assnTbl) {
+        console.error('Missing required elements. chkAll:', !!chkAll, 'assnTbl:', !!assnTbl);
+        return;
+    }
+
+    // When ALL checkbox changes
     chkAll.addEventListener('change', function() {
-        assnChks.forEach(function(c) { c.disabled = chkAll.checked; });
+        console.log('ALL checkbox changed to', chkAll.checked);
+        // When ALL is checked, uncheck all individual boxes but KEEP THEM ENABLED
+        if (chkAll.checked) {
+            assnChks.forEach(function(c) { 
+                c.checked = false;
+                c.disabled = false;  // Keep enabled so user can change their mind
+            });
+        }
     });
-    // Initialise disabled state on page load
-    assnChks.forEach(function(c) { c.disabled = chkAll.checked; });
+
+    // When any individual checkbox is checked, uncheck ALL
+    assnChks.forEach(function(c) {
+        c.addEventListener('change', function() {
+            console.log('Checkbox changed:', c.value, 'checked:', c.checked);
+            if (c.checked) {
+                chkAll.checked = false;
+            }
+        });
+    });
+
+    // Make sure all checkboxes start ENABLED (never disabled)
+    assnChks.forEach(function(c) { 
+        c.disabled = false;
+    });
+    console.log('All checkboxes enabled and ready');
+
+    // Form submission validation
+    if (form) {
+        form.addEventListener('submit', function(e) {
+            var selectedAny = Array.from(assnChks).some(function(c) { return c.checked; });
+            var allChecked = chkAll.checked;
+            
+            console.log('Form submitting. ALL:', allChecked, 'Individual selected:', selectedAny);
+            
+            if (!allChecked && !selectedAny) {
+                e.preventDefault();
+                alert('Please select at least one association or check ALL.');
+                return false;
+            }
+        });
+    }
+})();
 </script>
-}

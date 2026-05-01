@@ -96,6 +96,10 @@ public class AssociationSelectViewModel
     public string                ReturnTaxYear   { get; set; } = string.Empty;
     /// <summary>Optional Form context carried across redirects.</summary>
     public string                ReturnFormName  { get; set; } = string.Empty;
+    /// <summary>F12 cancel destination controller.</summary>
+    public string                CancelController { get; set; } = "TaxReporting";
+    /// <summary>F12 cancel destination action.</summary>
+    public string                CancelAction     { get; set; } = "MainMenu";
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -215,8 +219,7 @@ public class MaintainRecordViewModel
     public string          FormName    { get; set; } = string.Empty;
     public string          TaxDescription { get; set; } = string.Empty;
     public string          TaxStatus   { get; set; } = string.Empty;
-    public bool            ExitPressed { get; set; }
-    public bool            DeletePressed { get; set; }
+    public string          ActionClicked { get; set; } = string.Empty;  // "Save", "Delete", "Exit"
     public bool            ReturnToErrorReport { get; set; }
 
     // Customer info window (CUSTWDW from TX9525FM)
@@ -408,6 +411,39 @@ public class ExtractSetupViewModel
     public List<string>  AssocOptions   { get; set; } = new();
     public List<string>  SelectedAssocs { get; set; } = new();
     public bool          AllAssociations { get; set; }
+    public bool          CancelPressed  { get; set; }
+    public bool          BuildPressed   { get; set; }
+}
+
+/// <summary>Single association summary row with record count.</summary>
+public class DetailReportAssociationSummary
+{
+    public string AssociationCode { get; set; } = string.Empty;
+    public int RecordCount { get; set; }
+}
+
+/// <summary>Detail report summary view model – shows record counts per association.</summary>
+public class DetailReportSummaryViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+    public string FormName { get; set; } = string.Empty;
+    public string FormDescription { get; set; } = string.Empty;
+    public string ScreenTitle { get; set; } = string.Empty;
+    public string ProgramName { get; set; } = string.Empty;
+    public int TotalRecordCount { get; set; }
+    public IList<DetailReportAssociationSummary> AssociationSummaries { get; set; } = new List<DetailReportAssociationSummary>();
+}
+
+public class ExtractSubmitViewModel
+{
+    public string TaxYear { get; set; } = string.Empty;
+    public long    ExtSeq { get; set; }
+    public string RunDescription { get; set; } = string.Empty;
+    public string RunDate { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public List<string> Lines { get; set; } = new();
+    public string SelectedForm { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
     public bool          CancelPressed  { get; set; }
     public bool          BuildPressed   { get; set; }
 }

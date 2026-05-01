@@ -1,5 +1,6 @@
 using System.Data.Odbc;
 using System.Diagnostics;
+using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Renci.SshNet;
 using Tx9501.Data;
@@ -125,13 +126,8 @@ public sealed class AssociationService : IAssociationService
 
     public async Task<IList<AssociationRow>> GetAuthorisedAssociationsAsync(string userId)
     {
-        // Simplified – no BKGLIB authorization check, read all associations from FCMCCRL2
-        const string sql =
-            "SELECT FMBNUM, FMDLIB, FMGLPC, FMDSC, FMASTY, FMPALB " +
-            "FROM {0}/FCMCCRL2 " +
-            "ORDER BY FMGLPC";
-
-        return await ReadAssocRowsAsync(string.Format(sql, _lib), null);
+        var sql = $"SELECT FMBNUM, FMDLIB, FMGLPC, FMDSC, FMASTY, FMPALB FROM {_lib}/FCMCCRL2 ORDER BY FMGLPC";
+        return await ReadAssocRowsAsync(sql, null);
     }
 
     public async Task<IList<AssociationRow>> GetSelectedAssociationsAsync(IEnumerable<string> corpCodes)
@@ -191,31 +187,19 @@ public sealed class ClearTaxDataService : IClearTaxDataService
         _logger = logger;
     }
 
-    public async Task ClearAsync(string taxYear, string formName,
-                                  IEnumerable<string> associations, bool selectAll)
+    public async Task<int> ClearAsync(string taxYear, string formName,
+                                      IEnumerable<string> associations, bool selectAll)
     {
         var asns = associations.ToList();
 
-        await ClearLocalAsync(taxYear, formName, asns, selectAll);
+        var localDeletedRows = await ClearLocalAsync(taxYear, formName, asns, selectAll);
 
-        await using var conn = new OdbcConnection(_cs);
-        await conn.OpenAsync();
-
-        foreach (var asa in (selectAll ? await GetAllAsnsAsync(conn) : asns))
-        {
-            // DELETE FROM TXRDTL (mirrors tx9510 SQL)
-            await DeleteAsync(conn,
-                $"DELETE FROM {_lib}/TXRDTL WHERE TAXYR=? AND FORM=? AND ASA=?",
-                taxYear, formName, asa);
-
-            // DELETE FROM TXRAUD
-            await DeleteAsync(conn,
-                $"DELETE FROM {_lib}/TXRAUD WHERE TAXYR=? AND FORM=? AND ASA=?",
-                taxYear, formName, asa);
-        }
+        // Web clear is local-first: only delete from SQLite staging tables.
+        // Do not fail CLEAR on IBM i authorization constraints.
+        return localDeletedRows;
     }
 
-    private async Task ClearLocalAsync(string taxYear, string formName, IList<string> associations, bool selectAll)
+    private async Task<int> ClearLocalAsync(string taxYear, string formName, IList<string> associations, bool selectAll)
     {
         var normalizedTaxYear = taxYear.Trim();
         var normalizedForm = formName.Trim();
@@ -228,9 +212,13 @@ public sealed class ClearTaxDataService : IClearTaxDataService
             auditQuery = auditQuery.Where(d => associations.Contains(d.Asa));
         }
 
-        _db.TaxDetails.RemoveRange(await query.ToListAsync());
-        _db.TaxAudits.RemoveRange(await auditQuery.ToListAsync());
+        var localTaxDetails = await query.ToListAsync();
+        var localTaxAudits = await auditQuery.ToListAsync();
+        _db.TaxDetails.RemoveRange(localTaxDetails);
+        _db.TaxAudits.RemoveRange(localTaxAudits);
         await _db.SaveChangesAsync();
+
+        return localTaxDetails.Count + localTaxAudits.Count;
     }
 
     private static async Task DeleteAsync(OdbcConnection conn, string sql, params string[] parms)
@@ -261,51 +249,299 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
     private readonly string _cs;
     private readonly string _lib;
     private readonly LocalDbContext _db;
+    private readonly IDbContextFactory<LocalDbContext> _dbFactory;
+    private readonly IConfiguration _cfg;
+    private readonly TX9515BuildService _tx9515Build;
+    private readonly TX9526ValidationService _validationService;
     private readonly ILogger<BuildTaxDataService> _logger;
 
     public BuildTaxDataService(IConfiguration cfg, LocalDbContext db,
+                               IDbContextFactory<LocalDbContext> dbFactory,
+                               TX9515BuildService tx9515Build,
+                               TX9526ValidationService validationService,
                                ILogger<BuildTaxDataService> logger)
     {
-        _cs     = cfg.GetConnectionString("IBMi")!;
-        _lib    = cfg["IBMiSettings:Library"] ?? "TXLIB";
-        _db     = db;
-        _logger = logger;
+        _cs                = cfg.GetConnectionString("IBMi")!;
+        _lib               = cfg["IBMiSettings:Library"] ?? "TXLIB";
+        _db                = db;
+        _dbFactory         = dbFactory;
+        _cfg               = cfg;
+        _tx9515Build       = tx9515Build;
+        _validationService = validationService;
+        _logger            = logger;
     }
 
-    public async Task BuildAsync(string taxYear, string formName,
-                                  IEnumerable<string> associations, bool selectAll)
+    public async Task<int> BuildAsync(string taxYear, string formName,
+                                  IEnumerable<string> associations, bool selectAll,
+                                  IProgress<int>? progress = null)
     {
+        progress?.Report(5);
+
         var assocList = associations
             .Select(a => a.Trim())
             .Where(a => a.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
+        if (!int.TryParse(taxYear, out var taxYearInt))
+        {
+            _logger.LogError("Invalid tax year provided: {TaxYear}", taxYear);
+            return 0;
+        }
+
+        var buildAllModeByAssociation = _cfg.GetValue<bool?>("TaxSettings:BuildAllModeByAssociation") ?? true;
+        if (selectAll && assocList.Count == 0 && buildAllModeByAssociation)
+        {
+            assocList = await GetAllAssociationCodesAsync();
+            _logger.LogInformation(
+                "ALL mode resolved {AssocCount} associations for per-association build. TaxYear={TaxYear}, Form={FormName}",
+                assocList.Count,
+                taxYear,
+                formName);
+        }
+
+        progress?.Report(10);
+
         var sourceRows = new List<TaxDetailRecord>();
-        var sourceLoadedFromIbmi = false;
+        progress?.Report(15);
+
+        await ClearLocalBuildScopeAsync(taxYear, formName, assocList, selectAll);
+        progress?.Report(20);
+
+        // Get corp code and branch lib from configuration
+        var corpCode = _cfg["TaxSettings:CorpCode"] ?? "001";
+        var branchLib = _cfg["IBMiSettings:Library"] ?? "TXLIB";
+        var isCurrentYear = DateTime.Now.Year == taxYearInt;
+
+        _logger.LogInformation(
+            "BuildAsync starting: TaxYear={TaxYear}, Form={FormName}, CorpCode={CorpCode}, BranchLib={BranchLib}, SelectAll={SelectAll}, AssocCount={AssocCount}, Associations={Associations}",
+            taxYear, formName, corpCode, branchLib, selectAll, assocList.Count, string.Join(",", assocList));
+
         try
         {
-            sourceRows = await QueryBuildSourceFromIbmiAsync(taxYear, formName, assocList, selectAll);
-            sourceLoadedFromIbmi = true;
-        }
-        catch (OdbcException ex)
-        {
-            _logger.LogWarning(ex,
-                "IBM i source query failed during BUILD for year {TaxYear}, form {FormName}; falling back to local staging data.",
-                taxYear, formName);
-            sourceRows = await QueryBuildSourceFromLocalAsync(taxYear, formName, assocList, selectAll);
-        }
+            // Process one association at a time to provide frequent progress updates
+            // and avoid a single long-running batch.
+            // In ALL mode this behavior can be toggled via TaxSettings:BuildAllModeByAssociation.
+            var processByAssociation = assocList.Count > 0 && (!selectAll || buildAllModeByAssociation);
+            if (processByAssociation)
+            {
+                sourceRows = new List<TaxDetailRecord>();
+                var assocCount = assocList.Count;
 
-        if (sourceLoadedFromIbmi)
-        {
+                for (var i = 0; i < assocCount; i++)
+                {
+                    var assoc = assocList[i];
+                    var rangeStart = 20 + (int)Math.Floor(40.0 * i / assocCount);
+                    var rangeEnd = 20 + (int)Math.Floor(40.0 * (i + 1) / assocCount);
+
+                    var assocProgress = new Progress<int>(p =>
+                    {
+                        var normalized = Math.Clamp((p - 20) / 35.0, 0.0, 1.0);
+                        var mapped = rangeStart + (int)Math.Round((rangeEnd - rangeStart) * normalized);
+                        progress?.Report(Math.Clamp(mapped, rangeStart, rangeEnd));
+                    });
+
+                    _logger.LogInformation(
+                        "Building association {Association} ({Index}/{Total}) for TaxYear={TaxYear}, Form={FormName}",
+                        assoc,
+                        i + 1,
+                        assocCount,
+                        taxYear,
+                        formName);
+
+                    var assocRows = await _tx9515Build.BuildTaxDetailsAsync(
+                        taxYearInt,
+                        formName.Trim(),
+                        corpCode,
+                        branchLib,
+                        isCurrentYear,
+                        assocProgress,
+                        assoc);
+
+                    sourceRows.AddRange(assocRows);
+                }
+            }
+            else
+            {
+                // Use TX9515BuildService to build records from source files instead of reading pre-built TXRDTL
+                sourceRows = await _tx9515Build.BuildTaxDetailsAsync(
+                    taxYearInt,
+                    formName.Trim(),
+                    corpCode,
+                    branchLib,
+                    isCurrentYear,
+                    progress);
+            }
+            progress?.Report(60);
+
+            _logger.LogInformation(
+                "TX9515 BUILD service completed for year {TaxYear}, form {FormName}. Records built: {Count}",
+                taxYear, formName, sourceRows.Count);
+
+            // Filter by associations only when caller explicitly selected a subset.
+            if (!selectAll && assocList.Count > 0)
+            {
+                sourceRows = sourceRows
+                    .Where(r => assocList.Contains(r.Asa))
+                    .ToList();
+            }
+            progress?.Report(65);
+
+            // Refresh staging rows with the latest TXRDTL values when available.
+            // This keeps SQLite aligned with IBM i updates used for error checks and reports.
+            try
+            {
+                var txrdtlRows = await QueryBuildSourceFromIbmiAsync(taxYear, formName, assocList, selectAll);
+                if (txrdtlRows.Count > 0)
+                {
+                    var sourceCount = sourceRows.Count;
+                    sourceRows = MergeBuildRowsPreferTxrdtl(sourceRows, txrdtlRows);
+                    _logger.LogInformation(
+                        "Merged latest TXRDTL values into build rows for year {TaxYear}, form {FormName}. Source={SourceCount}, TXRDTL={TxrdtlCount}, Merged={MergedCount}",
+                        taxYear, formName, sourceCount, txrdtlRows.Count, sourceRows.Count);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Unable to refresh from TXRDTL during build for year {TaxYear}, form {FormName}; using build-source rows.",
+                    taxYear, formName);
+            }
+
+                    progress?.Report(75);
+
+            // Some form/source paths may return zero rows without throwing.
+            // In that case, try the legacy pre-built TXRDTL source before declaring no data.
+            if (sourceRows.Count == 0)
+            {
+                _logger.LogWarning(
+                    "TX9515 BUILD returned 0 rows for year {TaxYear}, form {FormName}; attempting fallback to pre-built TXRDTL.",
+                    taxYear, formName);
+
+                try
+                {
+                    sourceRows = await QueryBuildSourceFromIbmiAsync(taxYear, formName, assocList, selectAll);
+                    _logger.LogInformation(
+                        "Zero-row fallback to TXRDTL completed for year {TaxYear}, form {FormName}. Rows: {Count}",
+                        taxYear, formName, sourceRows.Count);
+                }
+                catch (Exception fallbackEx)
+                {
+                    _logger.LogWarning(fallbackEx,
+                        "TXRDTL fallback after zero-row primary build failed; using local staging data if available");
+                    sourceRows = await QueryBuildSourceFromLocalAsync(taxYear, formName, assocList, selectAll);
+                }
+            }
+
             await RemoveStaleLocalTaxDetailsAsync(taxYear, formName, assocList, selectAll, sourceRows);
+            progress?.Report(80);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex,
+                "TX9515 BUILD failed for year {TaxYear}, form {FormName}; attempting fallback to pre-built TXRDTL",
+                taxYear, formName);
+
+            // Fallback: Try to read pre-built TXRDTL from IBM i if TX9515 build fails
+            try
+            {
+                sourceRows = await QueryBuildSourceFromIbmiAsync(taxYear, formName, assocList, selectAll);
+                _logger.LogWarning("Fallback to pre-built TXRDTL successful for year {TaxYear}, form {FormName}", taxYear, formName);
+                await RemoveStaleLocalTaxDetailsAsync(taxYear, formName, assocList, selectAll, sourceRows);
+            }
+            catch (Exception fallbackEx)
+            {
+                _logger.LogWarning(fallbackEx,
+                    "TXRDTL fallback also failed; using local staging data if available");
+                sourceRows = await QueryBuildSourceFromLocalAsync(taxYear, formName, assocList, selectAll);
+            }
         }
 
-        // Batch process all rows at once instead of one-by-one
-        await BatchUpsertLocalTaxDetailsAsync(sourceRows);
+        // Run per-association upserts in parallel using one DbContext per worker.
+        await BatchUpsertLocalTaxDetailsByAssociationAsync(sourceRows);
+        progress?.Report(90);
 
         _logger.LogInformation("Web-side BUILD completed for year {TaxYear}, form {FormName}. Rows staged: {Count}",
             taxYear, formName, sourceRows.Count);
+
+        // Run TX9526 validation (equivalent to calling TX9526 in IBM i)
+        try
+        {
+            var validationAssocs = selectAll ? Enumerable.Empty<string>() : assocList;
+            var recordsWithErrors = await _validationService.ValidateRecordsAsync(
+                taxYearInt,
+                formName.Trim(),
+                validationAssocs);
+
+            _logger.LogInformation(
+                "TX9526 Validation completed for year {TaxYear}, form {FormName}. Records flagged with errors: {Count}",
+                taxYear, formName, recordsWithErrors);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "TX9526 Validation encountered an error for year {TaxYear}, form {FormName}. Records may need manual review.",
+                taxYear, formName);
+        }
+
+        progress?.Report(100);
+
+        return sourceRows.Count;
+    }
+
+    private async Task ClearLocalBuildScopeAsync(
+        string taxYear,
+        string formName,
+        IList<string> associations,
+        bool selectAll)
+    {
+        var normalizedTaxYear = NormalizeBuildKey(taxYear);
+        var normalizedForm = NormalizeBuildKey(formName);
+
+        var detailsQuery = _db.TaxDetails
+            .Where(d => d.TaxYear == normalizedTaxYear && d.Form == normalizedForm);
+
+        var auditsQuery = _db.TaxAudits
+            .Where(a => a.TaxYear == normalizedTaxYear && a.Form == normalizedForm);
+
+        if (!selectAll && associations.Count > 0)
+        {
+            detailsQuery = detailsQuery.Where(d => associations.Contains(d.Asa));
+            auditsQuery = auditsQuery.Where(a => associations.Contains(a.Asa));
+        }
+
+        var detailsToDelete = await detailsQuery.ToListAsync();
+        var auditsToDelete = await auditsQuery.ToListAsync();
+
+        if (detailsToDelete.Count == 0 && auditsToDelete.Count == 0)
+        {
+            _logger.LogInformation(
+                "Pre-build local cleanup found no rows to clear for year {TaxYear}, form {FormName}, SelectAll={SelectAll}.",
+                taxYear,
+                formName,
+                selectAll);
+            return;
+        }
+
+        if (detailsToDelete.Count > 0)
+        {
+            _db.TaxDetails.RemoveRange(detailsToDelete);
+        }
+
+        if (auditsToDelete.Count > 0)
+        {
+            _db.TaxAudits.RemoveRange(auditsToDelete);
+        }
+
+        await _db.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "Pre-build local cleanup removed {DetailCount} TaxDetails and {AuditCount} TaxAudits rows for year {TaxYear}, form {FormName}, SelectAll={SelectAll}.",
+            detailsToDelete.Count,
+            auditsToDelete.Count,
+            taxYear,
+            formName,
+            selectAll);
     }
 
     private async Task RemoveStaleLocalTaxDetailsAsync(
@@ -404,6 +640,38 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
         return rows;
     }
 
+    private async Task<List<string>> GetAllAssociationCodesAsync()
+    {
+        var codes = new List<string>();
+
+        try
+        {
+            var sql = $"SELECT DISTINCT FMGLPC FROM {_lib}/FCMCCRL2 WHERE FMGLPC IS NOT NULL AND TRIM(FMGLPC) <> '' ORDER BY FMGLPC";
+            await using var conn = new OdbcConnection(_cs);
+            await conn.OpenAsync();
+            await using var cmd = new OdbcCommand(sql, conn);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+
+            while (await rdr.ReadAsync())
+            {
+                var code = rdr.IsDBNull(0) ? string.Empty : rdr.GetString(0).Trim();
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex,
+                "Unable to resolve association list for ALL mode; falling back to bulk build path.");
+        }
+
+        return codes
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
     private async Task<List<TaxDetailRecord>> QueryBuildSourceFromLocalAsync(
         string taxYear, string formName, IList<string> associations, bool selectAll)
     {
@@ -485,6 +753,95 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
 
         // Save all changes at once
         await _db.SaveChangesAsync();
+    }
+
+    private async Task BatchUpsertLocalTaxDetailsByAssociationAsync(List<TaxDetailRecord> records)
+    {
+        if (records.Count == 0)
+            return;
+
+        var groups = records
+            .GroupBy(r => NormalizeBuildKey(r.Asa), StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var configuredParallelism = _cfg.GetValue<int?>("TaxSettings:BuildParallelism") ?? 4;
+        var maxParallelism = Math.Max(1, configuredParallelism);
+        using var semaphore = new SemaphoreSlim(maxParallelism, maxParallelism);
+
+        var tasks = groups.Select(async group =>
+        {
+            await semaphore.WaitAsync();
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                await UpsertAssociationBatchAsync(db, group.ToList());
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+        });
+
+        await Task.WhenAll(tasks);
+    }
+
+    private static async Task UpsertAssociationBatchAsync(LocalDbContext db, List<TaxDetailRecord> records)
+    {
+        if (records.Count == 0)
+            return;
+
+        var normalizedRecords = records
+            .Select(NormalizeRecordForLocal)
+            .ToList();
+
+        var recordKeySet = normalizedRecords
+            .Select(r => (r.TaxYear, r.Form, r.Asa, r.MbrNo, r.MbrSub))
+            .ToHashSet();
+
+        var taxYears = normalizedRecords
+            .Select(r => r.TaxYear)
+            .Distinct()
+            .ToList();
+        var forms = normalizedRecords
+            .Select(r => r.Form)
+            .Distinct()
+            .ToList();
+        var asns = normalizedRecords
+            .Select(r => r.Asa)
+            .Distinct()
+            .ToList();
+
+        var existingCandidates = await db.TaxDetails
+            .Where(d =>
+                taxYears.Contains(d.TaxYear) &&
+                forms.Contains(d.Form) &&
+                asns.Contains(d.Asa))
+            .ToListAsync();
+
+        var existingRecords = existingCandidates
+            .Where(d => recordKeySet.Contains((d.TaxYear, d.Form, d.Asa, d.MbrNo, d.MbrSub)))
+            .ToList();
+
+        var existingMap = existingRecords
+            .ToDictionary(r => (r.TaxYear, r.Form, r.Asa, r.MbrNo, r.MbrSub), r => r);
+
+        foreach (var normalized in normalizedRecords)
+        {
+            var key = (normalized.TaxYear, normalized.Form, normalized.Asa, normalized.MbrNo, normalized.MbrSub);
+
+            if (existingMap.TryGetValue(key, out var existing))
+            {
+                normalized.Id = existing.Id;
+                normalized.CreatedAt = existing.CreatedAt;
+                db.Entry(existing).CurrentValues.SetValues(normalized);
+            }
+            else
+            {
+                db.TaxDetails.Add(normalized);
+            }
+        }
+
+        await db.SaveChangesAsync();
     }
 
     private async Task UpsertLocalTaxDetailAsync(TaxDetailRecord record)
@@ -589,6 +946,25 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
 
     private static string NormalizeBuildKey(string? value) => (value ?? string.Empty).Trim();
 
+    private static string GetBuildRecordKey(TaxDetailRecord record)
+    {
+        var normalizedMbrNo = ((long)record.MbrNo).ToString();
+        return $"{NormalizeBuildKey(record.TaxYear)}|{NormalizeBuildKey(record.Form)}|{NormalizeBuildKey(record.Asa)}|{normalizedMbrNo}|{NormalizeBuildKey(record.MbrSub)}";
+    }
+
+    private static List<TaxDetailRecord> MergeBuildRowsPreferTxrdtl(
+        IEnumerable<TaxDetailRecord> buildRows,
+        IEnumerable<TaxDetailRecord> txrdtlRows)
+    {
+        var merged = buildRows.ToDictionary(GetBuildRecordKey, StringComparer.OrdinalIgnoreCase);
+        foreach (var txrdtl in txrdtlRows)
+        {
+            merged[GetBuildRecordKey(txrdtl)] = txrdtl;
+        }
+
+        return merged.Values.ToList();
+    }
+
     private static string SafeBuildString(System.Data.Common.DbDataReader r, int col)
     {
         if (r.IsDBNull(col)) return string.Empty;
@@ -609,6 +985,18 @@ public sealed class ValidateTaxService : IValidateTaxService
     private readonly string _lib;
     private readonly LocalDbContext _db;
     private readonly ILogger<ValidateTaxService> _logger;
+    private static readonly HashSet<decimal> GoofySsns = new()
+    {
+        111111111m, 222222222m, 333333333m, 444444444m, 555555555m,
+        666666666m, 777777777m, 888888888m, 999999999m
+    };
+
+    private static readonly HashSet<string> FallbackStateCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "AL","AK","AZ","AR","CA","CO","CT","DE","FL","GA","HI","ID","IL","IN","IA","KS","KY","LA","ME","MD",
+        "MA","MI","MN","MS","MO","MT","NE","NV","NH","NJ","NM","NY","NC","ND","OH","OK","OR","PA","RI","SC",
+        "SD","TN","TX","UT","VT","VA","WA","WV","WI","WY","DC","PR","VI","GU","AS","MP"
+    };
 
     public ValidateTaxService(IConfiguration cfg, LocalDbContext db, ILogger<ValidateTaxService> logger)
     {
@@ -623,6 +1011,7 @@ public sealed class ValidateTaxService : IValidateTaxService
                                           IProgress<int>? progress = null)
     {
         var rows = await GetCandidateRecordsAsync(taxYear, formName, associations, selectAll);
+        var validStateCodes = await GetValidStateCodesAsync();
         var flagged = 0;
         var totalRecords = rows.Count;
 
@@ -647,7 +1036,7 @@ public sealed class ValidateTaxService : IValidateTaxService
         int recordsProcessed = 0;
         foreach (var record in rows)
         {
-            record.Errors = HasValidationError(record) ? "Y" : string.Empty;
+            record.Errors = HasValidationError(record, validStateCodes) ? "Y" : "N";
             if (record.Errors == "Y")
             {
                 flagged++;
@@ -795,25 +1184,99 @@ public sealed class ValidateTaxService : IValidateTaxService
             .ToList();
     }
 
-    private static bool HasValidationError(TaxDetailRecord record)
+    private static bool HasValidationError(TaxDetailRecord record, HashSet<string> validStateCodes)
     {
+        var form = NormalizeText(record.Form).ToUpperInvariant();
         var ssiDc = NormalizeText(record.SsiDc).ToUpperInvariant();
         var foreign = NormalizeText(record.Foreign).Equals("Y", StringComparison.OrdinalIgnoreCase);
         var reportToIrs = NormalizeText(record.ReportToIrs).ToUpperInvariant();
         var nonRptReason = NormalizeText(record.NonRptReason);
+        var state = NormalizeText(record.BorrState).ToUpperInvariant();
 
         if (record.SsiDn <= 0) return true;
+        if (GoofySsns.Contains(record.SsiDn)) return true;
         if (ssiDc is not "S" and not "E") return true;
         if (string.IsNullOrWhiteSpace(record.BorrName)) return true;
         if (string.IsNullOrWhiteSpace(record.BorrAddr)) return true;
         if (string.IsNullOrWhiteSpace(record.BorrCity)) return true;
         if (!foreign && string.IsNullOrWhiteSpace(record.BorrState)) return true;
-        if (!foreign && record.BorrZip <= 0) return true;
+        if (!foreign && record.BorrZip < 1000000) return true;
+        if (!foreign && validStateCodes.Count > 0 && !validStateCodes.Contains(state)) return true;
         if (reportToIrs is not "Y" and not "N") return true;
         if (reportToIrs == "N" && string.IsNullOrWhiteSpace(nonRptReason)) return true;
         if (reportToIrs == "Y" && !string.IsNullOrWhiteSpace(nonRptReason)) return true;
 
+        if (form == "1098"
+            && (!string.IsNullOrWhiteSpace(record.SecAddr)
+                || !string.IsNullOrWhiteSpace(record.SecDesc)
+                || !string.IsNullOrWhiteSpace(record.SecOther))
+            && record.SecNum <= 0)
+        {
+            return true;
+        }
+
+        if (form == "1099-A")
+        {
+            if (!IsValidDateAcquired(record.DteAqr)) return true;
+            if (record.FmVal <= 0 || record.UnpPrn <= 0 || string.IsNullOrWhiteSpace(record.PrDesc)) return true;
+        }
+
         return false;
+    }
+
+    private async Task<HashSet<string>> GetValidStateCodesAsync()
+    {
+        var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            await using var conn = new OdbcConnection(_cs);
+            await conn.OpenAsync();
+            await using var cmd = new OdbcCommand($"SELECT * FROM {_lib}/BKSTAT", conn);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+
+            while (await rdr.ReadAsync())
+            {
+                if (rdr.FieldCount == 0 || rdr.IsDBNull(0))
+                {
+                    continue;
+                }
+
+                var code = rdr.GetValue(0)?.ToString()?.Trim().ToUpperInvariant() ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(code))
+                {
+                    codes.Add(code);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to load BKSTAT state codes; using fallback state code set.");
+        }
+
+        if (codes.Count == 0)
+        {
+            return new HashSet<string>(FallbackStateCodes, StringComparer.OrdinalIgnoreCase);
+        }
+
+        return codes;
+    }
+
+    private static bool IsValidDateAcquired(string? value)
+    {
+        var text = NormalizeText(value);
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return false;
+        }
+
+        return DateTime.TryParseExact(text,
+                   "yyyyMMdd",
+                   CultureInfo.InvariantCulture,
+                   DateTimeStyles.None,
+                   out _)
+               || DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out _)
+               || DateTime.TryParse(text, out _);
     }
 
     private static TaxDetailRecord MapValidationRecord(System.Data.Common.DbDataReader r) => new()
@@ -1697,6 +2160,15 @@ public sealed class ReportService : IReportService
         var assocList = associations.Select(a => a.Trim()).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var localRows = await QueryLocalAsync(taxYear, formName, assocList, selectAll);
 
+        if (localRows.Count > 0)
+        {
+            return localRows
+                .OrderBy(r => r.Asa)
+                .ThenBy(r => r.MbrNo)
+                .ThenBy(r => r.MbrSub)
+                .ToList();
+        }
+
         try
         {
             var ibmiRows = await QueryIbmiAsync(taxYear, formName, assocList, selectAll);
@@ -1731,6 +2203,31 @@ public sealed class ReportService : IReportService
         }
     }
 
+    public async Task<(int TotalCount, IList<DetailReportAssociationSummary> Associations)> GetDetailReportSummaryAsync(
+        string taxYear, string formName, IEnumerable<string> associations, bool selectAll)
+    {
+        var assocList = associations.Select(a => a.Trim()).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var localQuery = BuildLocalReportQuery(taxYear, formName, assocList, selectAll);
+        var localTotalCount = await localQuery.CountAsync();
+
+        if (localTotalCount > 0)
+        {
+            var localAssociations = await localQuery
+                .GroupBy(d => d.Asa)
+                .Select(g => new DetailReportAssociationSummary
+                {
+                    AssociationCode = g.Key,
+                    RecordCount = g.Count()
+                })
+                .OrderBy(g => g.AssociationCode)
+                .ToListAsync();
+
+            return (localTotalCount, localAssociations);
+        }
+
+        return await QueryIbmiDetailReportSummaryAsync(taxYear, formName, assocList, selectAll);
+    }
+
     public async Task<PagedResult<TaxDetailRecord>> GetDetailReportPageAsync(
         string taxYear, string formName, IEnumerable<string> associations, bool selectAll,
         int pageNumber, int pageSize, TaxDetailListMode mode)
@@ -1744,18 +2241,11 @@ public sealed class ReportService : IReportService
         // Local rows override IBM i rows with the same key.
         if (mode == TaxDetailListMode.Error)
         {
-            // Fetch first, then apply ordering client-side to avoid SQLite translation limitations
+            // For error reports, use ONLY local SQLite errors (fastest approach)
             var localErrorEntities = await BuildLocalReportQuery(taxYear, formName, assocList, selectAll)
                 .Where(d => d.Errors == "Y")
                 .ToListAsync();
 
-            var localUpdatedAtByKey = localErrorEntities
-                .ToDictionary(
-                    d => GetDetailKey(d.ToRecord()),
-                    d => d.UpdatedAt,
-                    StringComparer.OrdinalIgnoreCase);
-
-            // Apply ordering in-memory (LINQ to Objects) after fetching
             var localErrorRows = localErrorEntities
                 .OrderByDescending(d => d.UpdatedAt)
                 .ThenBy(d => d.Asa)
@@ -1764,66 +2254,48 @@ public sealed class ReportService : IReportService
                 .Select(d => d.ToRecord())
                 .ToList();
 
-            try
+            // Return local errors immediately without IBM i merge
+            return new PagedResult<TaxDetailRecord>
             {
-                var ibmiRows = await QueryIbmiAsync(taxYear, formName, assocList, selectAll);
-                var ibmiErrorRows = ApplyReportMode(ibmiRows, TaxDetailListMode.Error);
-
-                var merged = ibmiErrorRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
-                foreach (var local in localErrorRows)
-                {
-                    var key = GetDetailKey(local);
-                    if (merged.TryGetValue(key, out var ibmi)
-                        && string.IsNullOrWhiteSpace(local.NonRptReason)
-                        && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
-                    {
-                        local.NonRptReason = ibmi.NonRptReason;
-                    }
-
-                    merged[key] = local;
-                }
-
-                // Final ordering: latest local first, then by key
-                var orderedRows = merged.Values
-                    .OrderByDescending(d => localUpdatedAtByKey.TryGetValue(GetDetailKey(d), out var updatedAt)
-                        ? updatedAt
-                        : DateTime.MinValue)
-                    .ThenBy(d => d.Asa)
-                    .ThenBy(d => d.MbrNo)
-                    .ThenBy(d => d.MbrSub)
-                    .ToList();
-
-                return new PagedResult<TaxDetailRecord>
-                {
-                    Items = orderedRows
-                        .Skip((pageNumber - 1) * pageSize)
-                        .Take(pageSize)
-                        .ToList(),
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    TotalCount = orderedRows.Count
-                };
-            }
-            catch (OdbcException ex)
-            {
-                _logger.LogWarning(ex, "IBM i error-report source unavailable for {TaxYear} {FormName}; using SQLite errors.", taxYear, formName);
-
-                return new PagedResult<TaxDetailRecord>
-                {
-                    Items = localErrorRows
-                        .Skip((pageNumber - 1) * pageSize)
-                        .Take(pageSize)
-                        .ToList(),
-                    PageNumber = pageNumber,
-                    PageSize = pageSize,
-                    TotalCount = localErrorRows.Count
-                };
-            }
+                Items = localErrorRows
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToList(),
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = localErrorRows.Count
+            };
         }
 
         var localRows = await ApplyReportMode(BuildLocalReportQuery(taxYear, formName, assocList, selectAll), mode)
             .Select(d => d.ToRecord())
             .ToListAsync();
+
+        if (localRows.Count > 0)
+        {
+            var orderedLocalRows = localRows
+                .OrderBy(d => d.Asa)
+                .ThenBy(d => d.MbrNo)
+                .ThenBy(d => d.MbrSub)
+                .ToList();
+
+            return new PagedResult<TaxDetailRecord>
+            {
+                Items = orderedLocalRows
+                    .Skip((pageNumber - 1) * pageSize)
+                    .Take(pageSize)
+                    .ToList(),
+                PageNumber = pageNumber,
+                PageSize = pageSize,
+                TotalCount = orderedLocalRows.Count
+            };
+        }
+
+        var ibmiPage = await QueryIbmiReportPageAsync(taxYear, formName, assocList, selectAll, pageNumber, pageSize, mode);
+        if (ibmiPage.TotalCount > 0 || ibmiPage.Items.Count > 0)
+        {
+            return ibmiPage;
+        }
 
         try
         {
@@ -1889,9 +2361,17 @@ public sealed class ReportService : IReportService
         string taxYear, string formName, IList<string> associations, bool selectAll, TaxDetailListMode mode)
     {
         var assocList = associations.Select(a => a.Trim()).Where(a => a.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         var localAssociations = await GetDistinctAssociationsLocalAsync(taxYear, formName, assocList, selectAll, mode);
+
+        if (localAssociations.Count > 0)
+        {
+            return localAssociations
+                .Where(a => !string.IsNullOrWhiteSpace(a))
+                .OrderBy(a => a)
+                .ToList();
+        }
+
+        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var assoc in localAssociations)
             merged.Add(assoc);
 
@@ -1914,28 +2394,34 @@ public sealed class ReportService : IReportService
 
     public async Task<IList<string>> GetDistinctAssociationsWithErrorsAsync(string taxYear, string formName)
     {
-        // Error association filters should include both latest local staged errors and IBM i errors.
-        var merged = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
+        // For error reports, prioritize local SQLite errors (very fast)
+        // Only query IBM i as fallback if there are no local errors
         var localAssociations = await GetDistinctAssociationsWithErrorsLocalAsync(taxYear, formName);
-        foreach (var assoc in localAssociations)
-            merged.Add(assoc);
+        
+        // If we have local errors, return immediately without waiting for IBM i
+        if (localAssociations.Count > 0)
+        {
+            _logger.LogInformation("ErrorReport: Using {Count} local error associations", localAssociations.Count);
+            return localAssociations;
+        }
 
+        // Fallback: try IBM i only if no local errors exist
         try
         {
             var ibmiAssociations = await GetDistinctAssociationsWithErrorsIbmiAsync(taxYear, formName);
-            foreach (var assoc in ibmiAssociations)
-                merged.Add(assoc);
+            if (ibmiAssociations.Count > 0)
+            {
+                _logger.LogInformation("ErrorReport: Using {Count} IBM i error associations (no local errors found)", ibmiAssociations.Count);
+                return ibmiAssociations;
+            }
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "IBM i associations-with-errors unavailable for {TaxYear} {FormName}; using SQLite set.", taxYear, formName);
         }
 
-        return merged
-            .Where(a => !string.IsNullOrWhiteSpace(a))
-            .OrderBy(a => a)
-            .ToList();
+        // No errors found in either source
+        return new List<string>();
     }
 
     private async Task<IList<string>> GetDistinctAssociationsIbmiAsync(
@@ -1994,6 +2480,57 @@ public sealed class ReportService : IReportService
             .ToListAsync();
     }
 
+    private async Task<(int TotalCount, IList<DetailReportAssociationSummary> Associations)> QueryIbmiDetailReportSummaryAsync(
+        string taxYear, string formName, IList<string> associations, bool selectAll)
+    {
+        if (!int.TryParse(taxYear, out var taxYearInt))
+            return (0, Array.Empty<DetailReportAssociationSummary>());
+
+        var assocClause = string.Empty;
+        if (!selectAll && associations.Count > 0)
+        {
+            assocClause = $" AND ASA IN ({string.Join(",", associations.Select(_ => "?"))})";
+        }
+
+        var countSql = $@"SELECT COUNT(*)
+                          FROM {_lib}/TXRDTL
+                          WHERE TAXYR=? AND FORM=?{assocClause}";
+
+        var summarySql = $@"SELECT ASA, COUNT(*)
+                            FROM {_lib}/TXRDTL
+                            WHERE TAXYR=? AND FORM=?{assocClause}
+                            GROUP BY ASA
+                            ORDER BY ASA";
+
+        var totalCount = 0;
+        var associationsSummary = new List<DetailReportAssociationSummary>();
+
+        await using var conn = new OdbcConnection(_cs);
+        await conn.OpenAsync();
+
+        await using (var countCmd = new OdbcCommand(countSql, conn))
+        {
+            AddReportParameters(countCmd, taxYearInt, formName, associations);
+            totalCount = Convert.ToInt32(await countCmd.ExecuteScalarAsync() ?? 0);
+        }
+
+        await using (var summaryCmd = new OdbcCommand(summarySql, conn))
+        {
+            AddReportParameters(summaryCmd, taxYearInt, formName, associations);
+            await using var rdr = await summaryCmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                associationsSummary.Add(new DetailReportAssociationSummary
+                {
+                    AssociationCode = rdr.IsDBNull(0) ? string.Empty : rdr.GetString(0).Trim(),
+                    RecordCount = rdr.IsDBNull(1) ? 0 : Convert.ToInt32(rdr.GetValue(1))
+                });
+            }
+        }
+
+        return (totalCount, associationsSummary);
+    }
+
     private async Task<IList<string>> GetDistinctAssociationsWithErrorsIbmiAsync(string taxYear, string formName)
     {
         if (!int.TryParse(taxYear, out var taxYearInt))
@@ -2009,13 +2546,22 @@ public sealed class ReportService : IReportService
         await using var cmd = new OdbcCommand(sql, conn);
         cmd.Parameters.AddWithValue("?", taxYearInt);
         cmd.Parameters.AddWithValue("?", formName.Trim().PadRight(9));
+        cmd.CommandTimeout = 30; // 30-second timeout to prevent hangs
 
-        await using var rdr = await cmd.ExecuteReaderAsync();
-        while (await rdr.ReadAsync())
+        try
         {
-            var asa = rdr.IsDBNull(0) ? string.Empty : rdr.GetString(0).Trim();
-            if (!string.IsNullOrEmpty(asa))
-                result.Add(asa);
+            await using var rdr = await cmd.ExecuteReaderAsync();
+            while (await rdr.ReadAsync())
+            {
+                var asa = rdr.IsDBNull(0) ? string.Empty : rdr.GetString(0).Trim();
+                if (!string.IsNullOrEmpty(asa))
+                    result.Add(asa);
+            }
+        }
+        catch (OdbcException ex)
+        {
+            _logger.LogWarning(ex, "IBM i error associations query timed out or failed");
+            return Array.Empty<string>();
         }
 
         return result;
@@ -2050,7 +2596,7 @@ public sealed class ReportService : IReportService
         var assnStr = BuildAssocParam(associations.ToList(), selectAll);
         try
         {
-            await _ibmi.ExecuteProgramAsync("TX9591R", ctrl, assnStr);
+            await _ibmi.ExecuteProgramAsync("TX9591R", null, ctrl, assnStr);
         }
         catch (Exception ex)
         {
@@ -2072,42 +2618,41 @@ public sealed class ReportService : IReportService
         const string letterForm = "1098";
         var localRows = ApplyLetterRules(await QueryLocalAsync(taxYear, letterForm, assocList, selectAll));
 
-        try
+        // For letter candidates, prioritize local SQLite data (fastest)
+        // Return immediately without waiting for IBM i merge
+        if (localRows.Count > 0)
         {
-            var ibmiRows = ApplyLetterRules(await QueryIbmiAsync(taxYear, letterForm, assocList, selectAll));
-            var merged = ibmiRows.ToDictionary(GetDetailKey, StringComparer.OrdinalIgnoreCase);
-
-            foreach (var local in localRows)
-            {
-                var key = GetDetailKey(local);
-                if (merged.TryGetValue(key, out var ibmi)
-                    && string.IsNullOrWhiteSpace(local.NonRptReason)
-                    && !string.IsNullOrWhiteSpace(ibmi.NonRptReason))
-                {
-                    local.NonRptReason = ibmi.NonRptReason;
-                }
-
-                merged[key] = local;
-            }
-
-            return merged.Values
-                .OrderBy(r => r.Asa)
-                .ThenBy(r => r.MbrNo)
-                .ThenBy(r => r.MbrSub)
-                .ToList();
-        }
-        catch (OdbcException ex)
-        {
-            _logger.LogWarning(ex,
-                "IBM i letter-candidate source unavailable for {TaxYear}; using SQLite rows.",
-                taxYear);
-
+            _logger.LogInformation("LetterCandidates: Using {Count} local letter candidates", localRows.Count);
             return localRows
                 .OrderBy(r => r.Asa)
                 .ThenBy(r => r.MbrNo)
                 .ThenBy(r => r.MbrSub)
                 .ToList();
         }
+
+        // Fallback: query IBM i only if no local candidates
+        try
+        {
+            var ibmiRows = ApplyLetterRules(await QueryIbmiAsync(taxYear, letterForm, assocList, selectAll));
+            if (ibmiRows.Count > 0)
+            {
+                _logger.LogInformation("LetterCandidates: Using {Count} IBM i letter candidates (no local found)", ibmiRows.Count);
+                return ibmiRows
+                    .OrderBy(r => r.Asa)
+                    .ThenBy(r => r.MbrNo)
+                    .ThenBy(r => r.MbrSub)
+                    .ToList();
+            }
+        }
+        catch (OdbcException ex)
+        {
+            _logger.LogWarning(ex,
+                "IBM i letter-candidate source unavailable for {TaxYear}; using SQLite rows.",
+                taxYear);
+        }
+
+        // No candidates found in either source
+        return new List<TaxDetailRecord>();
     }
 
     public async Task<PagedResult<TaxDetailRecord>> GetLetterCandidatesPageAsync(
@@ -2134,7 +2679,7 @@ public sealed class ReportService : IReportService
     {
         var ctrl    = new Models.TaxControlRecord { TaxYear = taxYear }.ToControlString();
         var assnStr = BuildAssocParam(associations.ToList(), selectAll);
-        await _ibmi.ExecuteProgramAsync(pgm, ctrl, formName.PadRight(9), assnStr);
+        await _ibmi.ExecuteProgramAsync(pgm, null, ctrl, formName.PadRight(9), assnStr);
     }
 
     private async Task<List<TaxDetailRecord>> QueryIbmiAsync(

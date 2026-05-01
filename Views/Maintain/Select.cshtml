@@ -11,7 +11,17 @@
 
     @if (!string.IsNullOrEmpty(TempData["StatusMessage"] as string))
     {
-        <div class="terminal-message">@TempData["StatusMessage"]</div>
+        <div class="alert alert-success py-3 px-4 font-monospace mt-3" role="alert" style="font-size: 0.95rem; border-left: 6px solid #28a745;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">✓</span>
+            <strong>SUCCESS:</strong> @TempData["StatusMessage"]
+        </div>
+    }
+    @if (!string.IsNullOrEmpty(TempData["ErrorMessage"] as string))
+    {
+        <div class="alert alert-danger py-3 px-4 font-monospace mt-3" role="alert" style="font-size: 0.95rem; border-left: 6px solid #dc3545;">
+            <span style="font-size: 1.2rem; margin-right: 8px;">⚠️</span>
+            <strong>ERROR:</strong> @TempData["ErrorMessage"]
+        </div>
     }
 
     <div class="terminal-instructions">
