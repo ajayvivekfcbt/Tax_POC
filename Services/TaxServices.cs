@@ -1474,7 +1474,21 @@ public sealed class SummaryService : ISummaryService
         var sql = $@"
             SELECT ASA, RPT_TO_IRS,
                    COUNT(*) AS CNT,
-                   SUM(INTPD)  AS A1, SUM(POINTS) AS A2, SUM(INTERN) AS A3
+                   SUM(INTPD)  AS INTPD,
+                   SUM(POINTS) AS POINTS,
+                   SUM(INTERN) AS INTERN,
+                   SUM(ERNWTH) AS ERNWTH,
+                   SUM(DIVRCV) AS DIVRCV,
+                   SUM(DIVWTH) AS DIVWTH,
+                   SUM(PATREF) AS PATREF,
+                   SUM(PATWTH) AS PATWTH,
+                   SUM(FMVAL)  AS FMVAL,
+                   SUM(UNPPRN) AS UNPPRN,
+                   SUM(COMPEN) AS COMPEN,
+                   SUM(RENTS)  AS RENTS,
+                   SUM(MEDPAY) AS MEDPAY,
+                   SUM(LGLPAY) AS LGLPAY,
+                   SUM(OTHER)  AS OTHER
             FROM {_lib}/TXRDTL
             WHERE TAXYR = ? AND FORM = ?
             GROUP BY ASA, RPT_TO_IRS
@@ -1492,9 +1506,65 @@ public sealed class SummaryService : ISummaryService
             var asa    = rdr.GetString(0).Trim();
             var isYes  = rdr.GetString(1).Trim().Equals("Y", StringComparison.OrdinalIgnoreCase);
             var cnt    = rdr.GetInt32(2);
-            var a1     = rdr.IsDBNull(3) ? 0m : rdr.GetDecimal(3);
-            var a2     = rdr.IsDBNull(4) ? 0m : rdr.GetDecimal(4);
-            var a3     = rdr.IsDBNull(5) ? 0m : rdr.GetDecimal(5);
+
+            var intPd  = rdr.IsDBNull(3)  ? 0m : rdr.GetDecimal(3);
+            var points = rdr.IsDBNull(4)  ? 0m : rdr.GetDecimal(4);
+            var interN = rdr.IsDBNull(5)  ? 0m : rdr.GetDecimal(5);
+            var ernWth = rdr.IsDBNull(6)  ? 0m : rdr.GetDecimal(6);
+            var divRcv = rdr.IsDBNull(7)  ? 0m : rdr.GetDecimal(7);
+            var divWth = rdr.IsDBNull(8)  ? 0m : rdr.GetDecimal(8);
+            var patRef = rdr.IsDBNull(9)  ? 0m : rdr.GetDecimal(9);
+            var patWth = rdr.IsDBNull(10) ? 0m : rdr.GetDecimal(10);
+            var fmVal  = rdr.IsDBNull(11) ? 0m : rdr.GetDecimal(11);
+            var unpPrn = rdr.IsDBNull(12) ? 0m : rdr.GetDecimal(12);
+            var compen = rdr.IsDBNull(13) ? 0m : rdr.GetDecimal(13);
+            var rents  = rdr.IsDBNull(14) ? 0m : rdr.GetDecimal(14);
+            var medPay = rdr.IsDBNull(15) ? 0m : rdr.GetDecimal(15);
+            var lglPay = rdr.IsDBNull(16) ? 0m : rdr.GetDecimal(16);
+            var other  = rdr.IsDBNull(17) ? 0m : rdr.GetDecimal(17);
+
+            var normalizedForm = (formName ?? string.Empty).Trim().ToUpperInvariant();
+            decimal a1;
+            decimal a2;
+            decimal a3 = 0m;
+
+            switch (normalizedForm)
+            {
+                case "1098":
+                    a1 = intPd;
+                    a2 = points;
+                    break;
+                case "1099-INT":
+                    a1 = interN;
+                    a2 = ernWth;
+                    break;
+                case "1099-DIV":
+                    a1 = divRcv;
+                    a2 = divWth;
+                    break;
+                case "1099-PATR":
+                    a1 = patRef;
+                    a2 = patWth;
+                    break;
+                case "1099-A":
+                    a1 = fmVal;
+                    a2 = unpPrn;
+                    break;
+                case "1099-MISC":
+                    a1 = rents;
+                    a2 = medPay;
+                    a3 = other;
+                    break;
+                case "1099-NEC":
+                    a1 = compen;
+                    a2 = lglPay;
+                    break;
+                default:
+                    // Safe fallback for unexpected forms.
+                    a1 = intPd;
+                    a2 = points;
+                    break;
+            }
 
             if (!dict.TryGetValue(asa, out var row))
                 dict[asa] = row = new SummaryRow { Assoc = asa };

@@ -130,7 +130,7 @@
         </div>
 
         <!-- Validation Progress Indicator (hidden until validation runs) -->
-        <div id="validationProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+        <div id="validationProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: var(--shell-bg, #1a1a2e); border: 1px solid var(--shell-border, #333); border-radius: 5px;">
             <div style="text-align: center; margin-bottom: 15px;">
                 <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
                     <span class="visually-hidden">Validating...</span>
@@ -157,7 +157,7 @@
         </div>
 
         <!-- Build Progress Indicator (hidden until build runs) -->
-        <div id="buildProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: #f8f9fa; border-radius: 5px;">
+        <div id="buildProgress" style="display: none; margin-top: 20px; padding: 20px; background-color: var(--shell-bg, #1a1a2e); border: 1px solid var(--shell-border, #333); border-radius: 5px;">
             <div style="text-align: center; margin-bottom: 15px;">
                 <div class="spinner-border text-success" role="status" style="width: 3rem; height: 3rem;">
                     <span class="visually-hidden">Building...</span>
@@ -231,6 +231,17 @@ let lastBuildProgressValue = -1;
 let buildUnchangedPollCount = 0;
 let buildPollFailureCount = 0;
 const buildPollFailureThreshold = 8;
+
+// Cancel any running background processes when user navigates away (browser back/forward/close)
+window.addEventListener('pagehide', function() {
+    const cancelUrl = '@Url.Action("CancelProcesses", "TaxReporting")';
+    navigator.sendBeacon(cancelUrl);
+    stopValidationPolling();
+    stopBuildPolling();
+    if (window.localStorage) {
+        localStorage.removeItem(buildInProgressStorageKey);
+    }
+});
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('FormMenu page loaded. isBuildRunning=', isBuildRunning, 'isValidationRunning=', isValidationRunning);
@@ -480,28 +491,33 @@ function checkValidationStatus() {
                 progressText.textContent = `Processing records: ${progress}% complete`;
             }
         } else {
-            // Validation has completed
+            // Validation has completed — fill to 100%, pause briefly, then hide
             stopValidationPolling();
-            hideValidationProgress();
-            if (!isBuildRunning) {
-                enableMenuOptions();
-            }
-            
-            // Set progress to 100% before hiding
+            isValidationRunning = false;
+
             const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
             if (progressBar) {
                 progressBar.style.width = '100%';
                 progressBar.textContent = '100%';
             }
-            
-            // Show completion message
-            if (data.result) {
-                renderFormMessage('success', data.result);
-            } else if (data.error) {
-                renderFormMessage('error', data.error);
+            if (progressText) {
+                progressText.textContent = data.result
+                    ? 'Validation complete.'
+                    : (data.error ? 'Validation finished with errors.' : 'Done.');
             }
-            
-            isValidationRunning = false;
+
+            setTimeout(function() {
+                hideValidationProgress();
+                if (!isBuildRunning) {
+                    enableMenuOptions();
+                }
+                if (data.result) {
+                    renderFormMessage('success', data.result);
+                } else if (data.error) {
+                    renderFormMessage('error', data.error);
+                }
+            }, 600);
         }
     })
     .catch(error => {

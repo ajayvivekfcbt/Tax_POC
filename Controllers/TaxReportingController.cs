@@ -26,6 +26,7 @@ namespace Tx9501.Controllers;
 public sealed class TaxReportingController : Controller
 {
     private const int ReportPageSize = 50;
+    private const string GenericUiErrorMessage = "An internal error occurred while processing your request. Please try again.";
     // Session keys
     private const string SessionKeyControl  = "TaxControl";
     private const string SessionKeyForm     = "SelectedForm";
@@ -211,7 +212,7 @@ public sealed class TaxReportingController : Controller
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calling TXFIX1");
-                TempData["ErrorMessage"] = $"Error fixing tax data: {ex.Message}";
+                TempData["ErrorMessage"] = "Error fixing tax data. Please try again.";
             }
             return RedirectToAction(nameof(MainMenu));
         }
@@ -240,7 +241,7 @@ public sealed class TaxReportingController : Controller
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error calling SS1000 for 1099-MISC selection");
-                TempData["ErrorMessage"] = $"Error calling IBM i program SS1000: {ex.Message}";
+                TempData["ErrorMessage"] = "Error calling IBM i program SS1000. Please contact support if this persists.";
             }
         }
 
@@ -273,25 +274,30 @@ public sealed class TaxReportingController : Controller
         _logger.LogInformation("FormMenu GET state: IsValidationRunning={IsValidation}, IsBuildRunning={IsBuild}",
             validationState.IsRunning, buildState.IsRunning);
 
-        // Async completion messages are shown client-side on the current page.
-        // On refresh, clear terminal states without replaying old messages.
+        // Async completion messages are shown client-side on the current page via polling.
+        // If validation finished before the page loaded (fast run), the polling never fires,
+        // so surface the result/error through TempData instead of discarding it silently.
         if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ResultMessage))
         {
+            TempData["StatusMessage"] ??= validationState.ResultMessage;
             _validationState.ClearValidation(sessionId);
         }
         else if (!validationState.IsRunning && !string.IsNullOrEmpty(validationState.ErrorMessage))
         {
+            TempData["ErrorMessage"] ??= validationState.ErrorMessage;
             _validationState.ClearValidation(sessionId);
         }
 
         if (!buildState.IsRunning && !string.IsNullOrEmpty(buildState.ResultMessage))
         {
             _logger.LogInformation("Build completed with result: {Result}", buildState.ResultMessage);
+            TempData["StatusMessage"] ??= buildState.ResultMessage;
             _buildStateService.ClearBuild(sessionId);
         }
         else if (!buildState.IsRunning && !string.IsNullOrEmpty(buildState.ErrorMessage))
         {
             _logger.LogInformation("Build completed with error: {Error}", buildState.ErrorMessage);
+            TempData["ErrorMessage"] ??= buildState.ErrorMessage;
             _buildStateService.ClearBuild(sessionId);
         }
 
@@ -440,7 +446,7 @@ public sealed class TaxReportingController : Controller
         {
             _logger.LogError(ex, "Error executing action {Action} for form {Form}",
                 action, formName);
-            TempData["ErrorMessage"] = $"IBM i error during {action}: {ex.Message}";
+            TempData["ErrorMessage"] = $"IBM i error during {action}. Please try again.";
             TempData.Keep();  // Explicitly keep TempData for redirect
         }
 
@@ -541,7 +547,7 @@ public sealed class TaxReportingController : Controller
                     var exceptionChain = BuildExceptionChain(ex);
                     _logger.LogError(ex, "Error during background validation for form {Form}, SessionId={SessionId}. Exception chain: {ExceptionChain}", 
                         resolvedFormName, sessionId, exceptionChain);
-                    _validationState.FailValidation(sessionId, $"Validation failed: {ex.Message}\n{BuildExceptionMessage(ex)}");
+                    _validationState.FailValidation(sessionId, "Validation failed due to an internal error. Please retry.");
                 }
             }
         });
@@ -689,7 +695,7 @@ public sealed class TaxReportingController : Controller
 
                 using var scope = _serviceScopeFactory.CreateScope();
                 var scopedBuildState = scope.ServiceProvider.GetRequiredService<IBuildStateService>();
-                scopedBuildState.FailBuild(sessionId, $"Build failed: {ex.Message}");
+                scopedBuildState.FailBuild(sessionId, "Build failed due to an internal error. Please retry.");
             }
         });
 
@@ -784,7 +790,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error loading detail report summary");
-            TempData["ErrorMessage"] = $"Error loading detail report: {ex.Message}";
+            TempData["ErrorMessage"] = "Error loading detail report. Please try again.";
             return RedirectToAction(nameof(FormMenu));
         }
     }
@@ -844,7 +850,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building detail report for form {Form}", formName);
-            TempData["ErrorMessage"] = $"Unable to build detail report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to build detail report. Please try again.";
             return RedirectToAction(nameof(FormMenu));
         }
     }
@@ -988,7 +994,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building error report for form {Form}", formName);
-            TempData["ErrorMessage"] = $"Unable to build error report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to build error report. Please try again.";
             return RedirectToAction(nameof(FormMenu));
         }
     }
@@ -1004,7 +1010,6 @@ public sealed class TaxReportingController : Controller
 
         try
         {
-            // Get all associations that have error records
             var associationsWithErrors = await _reportService.GetDistinctAssociationsWithErrorsAsync(
                 control.TaxYear, formName);
 
@@ -1030,7 +1035,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting error report for form {Form}", formName);
-            TempData["ErrorMessage"] = $"Unable to export error report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export error report. Please try again.";
             return RedirectToAction(nameof(ErrorReport));
         }
     }
@@ -1071,7 +1076,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting error report PDF for form {Form}", formName);
-            TempData["ErrorMessage"] = $"Unable to export PDF report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export PDF report. Please try again.";
             return RedirectToAction(nameof(ErrorReport));
         }
     }
@@ -1131,13 +1136,13 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building exclusion report for form {Form}", formName);
-            TempData["ErrorMessage"] = $"Unable to build exclusion report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to build exclusion report. Please try again.";
             return RedirectToAction(nameof(FormMenu));
         }
     }
 
-    [HttpGet]
-    public async Task<IActionResult> DownloadExclusionReport(string? assoc = null)
+            [HttpGet]
+            public async Task<IActionResult> DownloadExclusionReport(string? assoc = null)
     {
         return await DownloadReportCsvAsync(
             TaxDetailListMode.Exclusion,
@@ -1146,8 +1151,8 @@ public sealed class TaxReportingController : Controller
             useAllAssociations: true);
     }
 
-    [HttpGet]
-    public async Task<IActionResult> DownloadExclusionReportPdf(string? assoc = null)
+            [HttpGet]
+            public async Task<IActionResult> DownloadExclusionReportPdf(string? assoc = null)
     {
         return await DownloadReportPdfAsync(
             TaxDetailListMode.Exclusion,
@@ -1156,14 +1161,14 @@ public sealed class TaxReportingController : Controller
             useAllAssociations: true);
     }
 
-    [HttpGet]
+            [HttpGet]
     public async Task<IActionResult> Letters(int page = 1, string? assoc = null)
     {
         var control = GetSessionControl();
         var formName = HttpContext.Session.GetString(SessionKeyForm);
 
         if (control is null || string.IsNullOrEmpty(formName))
-            return RedirectToAction(nameof(MainMenu));
+                return RedirectToAction(nameof(MainMenu));
 
         if (!string.Equals(formName, "1098", StringComparison.OrdinalIgnoreCase))
         {
@@ -1228,7 +1233,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error building TX9591R letter page for tax year {TaxYear}", control.TaxYear);
-            TempData["ErrorMessage"] = $"Unable to build letter page: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to build letter page. Please try again.";
             return RedirectToAction(nameof(FormMenu));
         }
     }
@@ -1266,7 +1271,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting TX9591R letter list for tax year {TaxYear}", control.TaxYear);
-            TempData["ErrorMessage"] = $"Unable to export letters: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export letters. Please try again.";
             return RedirectToAction(nameof(Letters));
         }
     }
@@ -1304,12 +1309,31 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting TX9591R letter PDF for tax year {TaxYear}", control.TaxYear);
-            TempData["ErrorMessage"] = $"Unable to export letter PDF: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export letter PDF. Please try again.";
             return RedirectToAction(nameof(Letters));
         }
     }
 
     // ═══════════════════════════════════════════════════════════════════════
+    // CANCEL PROCESSES  (browser back / navigate-away beacon)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Called via navigator.sendBeacon when the user navigates away (browser back/forward).
+    /// Clears any in-progress validation or build state so stale results are not replayed.
+    /// </summary>
+    [HttpPost]
+    [Route("TaxReporting/CancelProcesses")]
+    [IgnoreAntiforgeryToken]   // sendBeacon cannot set antiforgery headers
+    public IActionResult CancelProcesses()
+    {
+        var sessionId = HttpContext.Session.Id;
+        _validationState.ClearValidation(sessionId);
+        _buildStateService.ClearBuild(sessionId);
+        _logger.LogInformation("CancelProcesses: state cleared for session {SessionId}", sessionId);
+        return Ok();
+    }
+
     // EXIT  (F3 in IBM i – GOTO END_PGM)
     // ═══════════════════════════════════════════════════════════════════════
 
@@ -1607,7 +1631,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting {Mode} report for form {Form}", mode, formName);
-            TempData["ErrorMessage"] = $"Unable to export report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export report. Please try again.";
             return RedirectToAction(fallbackAction);
         }
     }
@@ -1687,7 +1711,7 @@ public sealed class TaxReportingController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error exporting {Mode} PDF report for form {Form}", mode, formName);
-            TempData["ErrorMessage"] = $"Unable to export PDF report: {ex.Message}";
+            TempData["ErrorMessage"] = "Unable to export PDF report. Please try again.";
             return RedirectToAction(fallbackAction);
         }
     }
@@ -2060,11 +2084,10 @@ public sealed class TaxReportingController : Controller
             result["Status"] = "SUCCESS";
             result["Message"] = $"LNMASTR returned {records.Count} records";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
             result["Status"] = "FAILED";
-            result["Error"] = ex.Message;
-            result["InnerError"] = ex.InnerException?.Message ?? "";
+            result["Error"] = GenericUiErrorMessage;
         }
 
         return Json(result);

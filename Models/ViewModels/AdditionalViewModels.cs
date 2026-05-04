@@ -239,6 +239,8 @@ public class SummaryViewModel
 {
     public string            TaxYear  { get; set; } = string.Empty;
     public string            FormName { get; set; } = string.Empty;
+    public string            Amt1Header { get; set; } = "Amt 1";
+    public string            Amt2Header { get; set; } = "Amt 2";
     public IList<SummaryRow> Rows     { get; set; } = new List<SummaryRow>();
 }
 

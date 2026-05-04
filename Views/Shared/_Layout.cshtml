@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@ViewData["Title"] — Tax Reporting System</title>
+    <script>
+        (function () {
+            try {
+                var storedTheme = localStorage.getItem('theme-preference');
+                if (storedTheme === 'light' || storedTheme === 'dark') {
+                    document.documentElement.setAttribute('data-theme', storedTheme);
+                }
+            } catch (_) {
+            }
+        })();
+    </script>
     <!-- Bootstrap 5 -->
     <link rel="stylesheet"
           href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
@@ -14,28 +25,38 @@
     <!-- ═════════════════════════════════════════════════════════════════════════
          HEADER – Company Branding
          ═════════════════════════════════════════════════════════════════════════ -->
-    <header style="background-color: #003f87; border-bottom: 4px solid #90c93e; padding: 16px 20px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 20px;">
+    <header id="appHeader" class="app-shell-header" style="background-color:#003f87;border-bottom:4px solid #90c93e;padding:16px 20px;transition:background-color 0.25s,border-color 0.25s;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:20px;">
             <!-- Company Logo & Name (Left) -->
-            <div style="display: flex; align-items: center; gap: 12px; flex-shrink: 0;">
-                <img src="~/images/download.jpg" alt="Farm Credit Bank of Texas" 
-                     style="height: 60px; width: auto; object-fit: contain;" />
-                <div style="line-height: 1.3;">
-                    <div style="font-weight: 600; font-size: 1.1rem; color: #fff;">Farm Credit</div>
-                    <div style="font-weight: 400; font-size: 0.9rem; color: #90c93e;">Bank of Texas</div>
+            <div style="display:flex;align-items:center;gap:12px;flex-shrink:0;">
+                <img src="~/images/download.jpg" alt="Farm Credit Bank of Texas"
+                     style="height:60px;width:auto;object-fit:contain;" />
+                <div style="line-height:1.3;">
+                    <div id="hdrBrandTitle" style="font-weight:600;font-size:1.1rem;color:#fff;">Farm Credit</div>
+                    <div id="hdrBrandSub" style="font-weight:400;font-size:0.9rem;color:#90c93e;">Bank of Texas</div>
                 </div>
             </div>
 
             <!-- Page Title (Center) -->
-            <div style="text-align: center; flex: 1; min-width: 200px;">
-                <div style="font-size: 1.1rem; font-weight: 600; color: #fff;">@ViewData["Title"]</div>
-                <div style="font-size: 0.85rem; color: #90c93e;">Tax Reporting System</div>
+            <div style="text-align:center;flex:1;min-width:200px;">
+                <div id="hdrPageTitle" style="font-size:1.1rem;font-weight:600;color:#fff;">@ViewData["Title"]</div>
+                <div id="hdrPageSub" style="font-size:0.85rem;color:#90c93e;">Tax Reporting System</div>
             </div>
 
-            <!-- System Info (Right) -->
-            <div style="text-align: right; color: #90c93e; font-size: 0.9rem; flex-shrink: 0;">
-                <div style="font-weight: 600;">TX9501</div>
-                <div style="font-size: 0.85rem;">IBM i System</div>
+            <!-- Toggle + System Info (Right) -->
+            <div style="display:flex;align-items:center;gap:0.85rem;flex-shrink:0;">
+                <button type="button"
+                        id="themeToggle"
+                        class="theme-toggle"
+                        aria-label="Toggle dark and light mode"
+                        aria-pressed="false"
+                        style="border:1px solid rgba(255,255,255,0.35);background:rgba(0,0,0,0.18);color:#fff;border-radius:999px;padding:0.4rem 0.85rem;font-size:0.8rem;font-weight:700;cursor:pointer;transition:background 0.2s,color 0.2s,border-color 0.2s;">
+                    ☀ Light Mode
+                </button>
+                <div style="text-align:right;font-size:0.9rem;">
+                    <div id="hdrSysTitle" style="font-weight:600;color:#fff;">TX9501</div>
+                    <div id="hdrSysSub" style="font-size:0.85rem;color:#90c93e;">IBM i System</div>
+                </div>
             </div>
         </div>
     </header>
@@ -49,11 +70,11 @@
         Browser navigation is disabled. Use screen buttons.
     </div>
 
-    <footer class="text-center small py-3 border-top mt-4" style="background-color: #f8f9fa; color: #666;">
-        <div style="margin-bottom: 0.5rem;">
+    <footer class="text-center small py-3 border-top mt-4 app-shell-footer">
+        <div class="app-shell-footer__title">
             <strong>Farm Credit Bank of Texas</strong> — Tax Reporting System
         </div>
-        <div style="font-size: 0.85rem; color: #999;">
+        <div class="app-shell-footer__meta">
             IBM i Back-End &bull; ASP.NET Core Front-End &bull; TX9501 System
         </div>
     </footer>
@@ -66,7 +87,122 @@
     (function () {
         var historyGuardEnabled = true;
         var navNoticeTimer = null;
-        var maskedBrowserUrl = '/';
+        var maskedBrowserUrl = window.location.pathname + window.location.search + window.location.hash;
+        var navLockedUrlKey = 'taxpoc.nav.lockedUrl';
+        var navNoticePendingKey = 'taxpoc.nav.noticePending';
+        var themeStorageKey = 'theme-preference';
+
+        function getCurrentPageUrl() {
+            return window.location.pathname + window.location.search + window.location.hash;
+        }
+
+        function setLockedUrl(url) {
+            try {
+                sessionStorage.setItem(navLockedUrlKey, url || getCurrentPageUrl());
+            } catch (_) {
+            }
+        }
+
+        function getLockedUrl() {
+            try {
+                return sessionStorage.getItem(navLockedUrlKey) || '';
+            } catch (_) {
+                return '';
+            }
+        }
+
+        function setNoticePending() {
+            try {
+                sessionStorage.setItem(navNoticePendingKey, '1');
+            } catch (_) {
+            }
+        }
+
+        function consumeNoticePending() {
+            try {
+                var pending = sessionStorage.getItem(navNoticePendingKey) === '1';
+                if (pending) {
+                    sessionStorage.removeItem(navNoticePendingKey);
+                }
+                return pending;
+            } catch (_) {
+                return false;
+            }
+        }
+
+        function getNavigationType() {
+            try {
+                if (performance && performance.getEntriesByType) {
+                    var entries = performance.getEntriesByType('navigation');
+                    if (entries && entries.length > 0 && entries[0].type) {
+                        return entries[0].type;
+                    }
+                }
+            } catch (_) {
+            }
+            return '';
+        }
+
+        function getCurrentTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+        }
+
+        var THEMES = {
+            dark: {
+                headerBg:     '#003f87',
+                headerBorder: '#90c93e',
+                titleColor:   '#ffffff',
+                subColor:     '#90c93e',
+                btnBg:        'rgba(0,0,0,0.18)',
+                btnColor:     '#ffffff',
+                btnBorder:    'rgba(255,255,255,0.35)',
+                btnLabel:     '☀ Light Mode'
+            },
+            light: {
+                headerBg:     '#e6f0ff',
+                headerBorder: '#2f855a',
+                titleColor:   '#0f172a',
+                subColor:     '#166534',
+                btnBg:        'rgba(255,255,255,0.85)',
+                btnColor:     '#0f172a',
+                btnBorder:    'rgba(15,23,42,0.25)',
+                btnLabel:     '🌙 Dark Mode'
+            }
+        };
+
+        function applyHeaderColors(t) {
+            var h   = document.getElementById('appHeader');
+            var bt  = document.getElementById('hdrBrandTitle');
+            var bs  = document.getElementById('hdrBrandSub');
+            var pt  = document.getElementById('hdrPageTitle');
+            var ps  = document.getElementById('hdrPageSub');
+            var st  = document.getElementById('hdrSysTitle');
+            var ss  = document.getElementById('hdrSysSub');
+            var btn = document.getElementById('themeToggle');
+            if (!h) return;
+            h.style.backgroundColor = t.headerBg;
+            h.style.borderBottomColor = t.headerBorder;
+            if (bt) bt.style.color = t.titleColor;
+            if (bs) bs.style.color = t.subColor;
+            if (pt) pt.style.color = t.titleColor;
+            if (ps) ps.style.color = t.subColor;
+            if (st) st.style.color = t.titleColor;
+            if (ss) ss.style.color = t.subColor;
+            if (btn) {
+                btn.textContent     = t.btnLabel;
+                btn.style.background    = t.btnBg;
+                btn.style.color         = t.btnColor;
+                btn.style.borderColor   = t.btnBorder;
+                btn.setAttribute('aria-pressed', String(t === THEMES.light));
+            }
+        }
+
+        function applyTheme(theme) {
+            var resolvedTheme = theme === 'light' ? 'light' : 'dark';
+            document.documentElement.setAttribute('data-theme', resolvedTheme);
+            try { localStorage.setItem(themeStorageKey, resolvedTheme); } catch (_) {}
+            applyHeaderColors(THEMES[resolvedTheme]);
+        }
 
         function isEditableTarget(target) {
             if (!target || !target.tagName) return false;
@@ -77,7 +213,9 @@
         function enableHistoryGuard() {
             if (!historyGuardEnabled) return;
             try {
+                maskedBrowserUrl = getCurrentPageUrl();
                 history.replaceState({ navGuard: true }, '', maskedBrowserUrl);
+                history.pushState({ navGuard: true }, '', maskedBrowserUrl);
                 history.pushState({ navGuard: true }, '', maskedBrowserUrl);
             } catch (_) {
                 // Some browsers/restrictions may block history state operations.
@@ -85,7 +223,8 @@
         }
 
         function disableHistoryGuardForProgrammaticNav() {
-            historyGuardEnabled = false;
+            // Intentionally no-op: browser back/forward remains blocked on all app pages.
+            historyGuardEnabled = true;
         }
 
         function showNavGuardNotice() {
@@ -123,7 +262,22 @@
 
         // Wire up on DOM ready and after any dynamic content
         document.addEventListener('DOMContentLoaded', function () {
+            var themeToggle = document.getElementById('themeToggle');
+
+            // Apply saved theme (including header inline-style colours) on load
+            applyTheme(getCurrentTheme());
+
+            if (themeToggle) {
+                themeToggle.addEventListener('click', function () {
+                    applyTheme(getCurrentTheme() === 'light' ? 'dark' : 'light');
+                });
+            }
+
             enableHistoryGuard();
+
+            if (consumeNoticePending()) {
+                showNavGuardNotice();
+            }
 
             // radio buttons (year-select, audit-select, etc.)
             document.querySelectorAll('input[type="radio"]').forEach(function (radio) {
@@ -167,21 +321,39 @@
                 });
             });
 
-            // Allow navigation only through in-screen links/buttons.
-            document.querySelectorAll('a, button[type="submit"], button[data-hotkey]').forEach(function (el) {
-                el.addEventListener('click', function () {
-                    disableHistoryGuardForProgrammaticNav();
-                });
-            });
+            // Keep history guard always enabled across app pages.
         });
 
         window.addEventListener('popstate', function () {
             if (!historyGuardEnabled) return;
             try {
+                maskedBrowserUrl = getCurrentPageUrl();
                 history.pushState({ navGuard: true }, '', maskedBrowserUrl);
+                history.pushState({ navGuard: true }, '', maskedBrowserUrl);
+                setLockedUrl(maskedBrowserUrl);
                 showNavGuardNotice();
             } catch (_) {
             }
+        });
+
+        // Re-arm guard when the page is restored from browser cache.
+        window.addEventListener('pageshow', function (e) {
+            var currentUrl = getCurrentPageUrl();
+            var lockedUrl = getLockedUrl();
+            var navType = getNavigationType();
+            var isHistoryRestore = e.persisted || navType === 'back_forward';
+
+            // If this document is not the currently locked page,
+            // immediately return to the locked page ONLY on browser history restore.
+            if (isHistoryRestore && lockedUrl && lockedUrl !== currentUrl) {
+                setNoticePending();
+                window.location.replace(lockedUrl);
+                return;
+            }
+
+            historyGuardEnabled = true;
+            enableHistoryGuard();
+            setLockedUrl(currentUrl);
         });
 
         // ── F3 key: go back to main menu ──

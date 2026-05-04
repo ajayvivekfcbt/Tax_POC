@@ -49,9 +49,9 @@ public class MaintainController : Controller
             record = await _maintainSvc.GetRecordAsync(
                 vm.TaxYear, vm.FormName, vm.Assoc, vm.MemberNo, vm.MemberSub);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            TempData["ErrorMessage"] = $"Lookup error: {ex.Message}";
+            TempData["ErrorMessage"] = "Lookup error. Please try again.";
             return View(vm);
         }
 
@@ -189,9 +189,9 @@ public class MaintainController : Controller
             }
             TempData.Keep();
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            TempData["ErrorMessage"] = $"Error saving record: {ex.Message}";
+            TempData["ErrorMessage"] = "Error saving record. Please try again.";
             TempData.Keep();
             return View(vm);
         }

@@ -412,7 +412,7 @@ public class ExtractController : Controller
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error in BuildDirect");
-            TempData["ErrorMessage"] = $"Error creating/building extract: {ex.Message}";
+            TempData["ErrorMessage"] = "Error creating/building extract. Please try again.";
             return RedirectToAction("Index");
         }
     }

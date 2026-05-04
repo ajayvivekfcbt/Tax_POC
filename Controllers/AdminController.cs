@@ -243,9 +243,9 @@ public sealed class AdminController : Controller
             vm.OnlyIbmi = vm.Rows.Count(r => r.OnlyInIbmi);
             vm.OnlyWeb = vm.Rows.Count(r => r.OnlyInWeb);
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            vm.ErrorMessage = $"Error comparing records: {ex.Message}";
+            vm.ErrorMessage = "Error comparing records. Please try again.";
         }
 
         return View(vm);

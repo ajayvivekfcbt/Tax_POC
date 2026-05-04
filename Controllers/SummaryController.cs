@@ -28,11 +28,14 @@ public class SummaryController : Controller
 
         var form = HttpContext.Session.GetString("SelectedForm") ?? "";
         var rows = await _sumSvc.GetSummaryAsync(ctrl.TaxYear, form);
+        var headers = GetAmountHeaders(form);
 
         return View(new SummaryViewModel
         {
             TaxYear  = ctrl.TaxYear,
             FormName = form,
+            Amt1Header = headers.Amt1,
+            Amt2Header = headers.Amt2,
             Rows     = rows
         });
     }
@@ -45,11 +48,14 @@ public class SummaryController : Controller
 
         var form = HttpContext.Session.GetString("SelectedForm") ?? "";
         var rows = await _sumSvc.GetSummaryAsync(ctrl.TaxYear, form);
+        var headers = GetAmountHeaders(form);
 
         var model = new SummaryViewModel
         {
             TaxYear  = ctrl.TaxYear,
             FormName = form,
+            Amt1Header = headers.Amt1,
+            Amt2Header = headers.Amt2,
             Rows     = rows
         };
 
@@ -95,10 +101,10 @@ public class SummaryController : Controller
                         h.Cell().Element(HeaderCell).Text("Assoc").Bold().FontColor(Colors.White);
                         h.Cell().Element(HeaderCell).Text("Count (Y)").Bold().FontColor(Colors.White);
                         h.Cell().Element(HeaderCell).Text("Count (N)").Bold().FontColor(Colors.White);
-                        h.Cell().Element(HeaderCell).Text("Amt 1 (Y)").Bold().FontColor(Colors.White);
-                        h.Cell().Element(HeaderCell).Text("Amt 1 (N)").Bold().FontColor(Colors.White);
-                        h.Cell().Element(HeaderCell).Text("Amt 2 (Y)").Bold().FontColor(Colors.White);
-                        h.Cell().Element(HeaderCell).Text("Amt 2 (N)").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text($"{model.Amt1Header} (Y)").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text($"{model.Amt1Header} (N)").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text($"{model.Amt2Header} (Y)").Bold().FontColor(Colors.White);
+                        h.Cell().Element(HeaderCell).Text($"{model.Amt2Header} (N)").Bold().FontColor(Colors.White);
                     });
 
                     // Data rows
@@ -158,5 +164,20 @@ public class SummaryController : Controller
         var json = HttpContext.Session.GetString("TaxControl");
         return json is null ? null
             : System.Text.Json.JsonSerializer.Deserialize<TaxControlRecord>(json);
+    }
+
+    private static (string Amt1, string Amt2) GetAmountHeaders(string? formName)
+    {
+        return (formName ?? string.Empty).Trim().ToUpperInvariant() switch
+        {
+            "1098" => ("1098 Interest", "Points"),
+            "1099-INT" => ("1099 Interest", "Withholdings"),
+            "1099-DIV" => ("Dividends", "Withholdings"),
+            "1099-PATR" => ("Patronage", "Withholdings"),
+            "1099-A" => ("Fair Mkt Value", "Unpaid Principal"),
+            "1099-MISC" => ("Rents", "Medical"),
+            "1099-NEC" => ("Compensation", "Legal"),
+            _ => ("Amt 1", "Amt 2")
+        };
     }
 }
