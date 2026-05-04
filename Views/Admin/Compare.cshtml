@@ -1,0 +1,112 @@
+@model Tx9501.Models.ViewModels.CompareViewModel
+@{
+    ViewData["Title"] = "Compare Web vs IBM i TXRDTL";
+}
+
+<h2>Compare Web-Built Rows vs IBM i TXRDTL</h2>
+<p class="text-muted">
+    Shows the 29 fields side-by-side per row by matching IBM i and web records using whole-number SSIDN.
+</p>
+<div class="mb-3 d-flex gap-2">
+    <a asp-controller="@Model.ReturnController" asp-action="@Model.ReturnAction" class="btn btn-sm btn-outline-warning">F12 = Back</a>
+    <a href="/Admin" class="btn btn-sm btn-outline-secondary">Back to Admin</a>
+</div>
+
+<form method="post" asp-action="Compare">
+    @Html.AntiForgeryToken()
+    <input type="hidden" name="returnController" value="@Model.ReturnController" />
+    <input type="hidden" name="returnAction" value="@Model.ReturnAction" />
+    <div class="row g-3 align-items-end mb-3">
+        <div class="col-auto">
+            <label class="form-label">Tax Year</label>
+            <input name="taxYear" value="@Model.TaxYear" class="form-control" style="width:90px" placeholder="e.g. 2024" required />
+        </div>
+        <div class="col-auto">
+            <label class="form-label">Form</label>
+            <select name="formName" class="form-select" style="width:130px">
+                @foreach (var f in new[] { "1098","1099-INT","1099-DIV","1099-PATR","1099-A","1099-MISC","1099-NEC" })
+                {
+                    <option value="@f" selected="@(Model.FormName == f ? "selected" : null)">@f</option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <label class="form-label">Association</label>
+            <input name="assoc" value="@Model.AssociationId" class="form-control" style="width:90px" placeholder="e.g. R01" required />
+        </div>
+        <div class="col-auto">
+            <label class="form-label">Max Rows</label>
+            <select name="maxRows" class="form-select" style="width:110px">
+                @foreach (var n in new[] { 50, 100, 250, 500, 0 })
+                {
+                    <option value="@n" selected="@(Model.MaxRows == n ? "selected" : null)">
+                        @(n == 0 ? "All" : n.ToString())
+                    </option>
+                }
+            </select>
+        </div>
+        <div class="col-auto">
+            <button type="submit" class="btn btn-primary">Run Comparison</button>
+        </div>
+    </div>
+</form>
+
+@if (!string.IsNullOrWhiteSpace(Model.ErrorMessage))
+{
+    <div class="alert alert-danger">@Model.ErrorMessage</div>
+}
+
+@if (Model.Ran)
+{
+    <div class="row mb-3">
+        <div class="col">
+            <div class="card">
+                <div class="card-body d-flex gap-4 flex-wrap">
+                    <span><strong>IBM i rows:</strong> @Model.IbmiCount</span>
+                    <span><strong>Web rows:</strong> @Model.WebCount</span>
+                    <span><strong>Output rows:</strong> @Model.Rows.Count</span>
+                    <span><strong>Matching rows:</strong> @Model.MatchCount</span>
+                    <span><strong>Not matching rows:</strong> @Model.DiffCount</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    @if (!Model.Rows.Any())
+    {
+        <div class="alert alert-info">No rows found for the selected filters.</div>
+    }
+    else
+    {
+        @foreach (var row in Model.Rows)
+        {
+            <details class="mb-2" open>
+                <summary class="p-2 rounded bg-light" style="cursor:pointer;list-style:none">
+                    <strong>ACCTNO @row.MbrNo @(string.IsNullOrWhiteSpace(row.MbrSub) || row.MbrSub == "000" ? "" : $"/{row.MbrSub}")</strong>
+                </summary>
+                @if (row.Diffs.Any())
+                {
+                    <table class="table table-sm table-bordered mt-1">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Field</th>
+                                <th>IBM i Value</th>
+                                <th>Web Value</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var d in row.Diffs)
+                            {
+                                <tr>
+                                    <td><strong>@d.FieldName</strong></td>
+                                    <td>@(string.IsNullOrEmpty(d.IbmiValue) ? "—" : d.IbmiValue)</td>
+                                    <td>@(string.IsNullOrEmpty(d.WebValue)  ? "—" : d.WebValue)</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                }
+            </details>
+        }
+    }
+}

@@ -4,8 +4,54 @@ using System.ComponentModel.DataAnnotations;
 namespace Tx9501.Models.ViewModels;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shared helper types (used across multiple view models)
+// TX9515 web-vs-IBM-i field comparison tool
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>One field difference between the web-built row and the IBM i TXRDTL row.</summary>
+public class FieldDiff
+{
+    public string FieldName  { get; set; } = string.Empty;
+    public string IbmiValue  { get; set; } = string.Empty;
+    public string WebValue   { get; set; } = string.Empty;
+    public bool   IsMatch    { get; set; }
+}
+
+/// <summary>Field comparison for one member number (one TXRDTL row keyed by MbrNo).</summary>
+public class MemberCompareRow
+{
+    public decimal          MbrNo  { get; set; }
+    public string           MbrSub { get; set; } = string.Empty;
+    public bool             OnlyInIbmi { get; set; }
+    public bool             OnlyInWeb  { get; set; }
+    public List<FieldDiff>  Diffs  { get; set; } = new();
+    public int              DiffCount => Diffs.Count(d => !d.IsMatch);
+}
+
+/// <summary>View model for the Admin/Compare page.</summary>
+public class CompareViewModel
+{
+    // Filters
+    public string TaxYear      { get; set; } = string.Empty;
+    public string FormName     { get; set; } = string.Empty;
+    public string AssociationId { get; set; } = string.Empty;
+    public int    MaxRows      { get; set; } = 100;
+
+    // F12 return target
+    public string ReturnController { get; set; } = "Admin";
+    public string ReturnAction     { get; set; } = "Index";
+
+    // Results
+    public List<MemberCompareRow> Rows          { get; set; } = new();
+    public int IbmiCount  { get; set; }
+    public int WebCount   { get; set; }
+    public int MatchCount { get; set; }
+    public int DiffCount  { get; set; }
+    public int OnlyIbmi   { get; set; }
+    public int OnlyWeb    { get; set; }
+    public string? ErrorMessage { get; set; }
+    public bool Ran { get; set; }
+}
+
 
 /// <summary>A selectable form option (radio-button row).</summary>
 public class FormOption
@@ -100,6 +146,10 @@ public class AssociationSelectViewModel
     public string                CancelController { get; set; } = "TaxReporting";
     /// <summary>F12 cancel destination action.</summary>
     public string                CancelAction     { get; set; } = "MainMenu";
+    /// <summary>Optional explicit F12 cancel controller override from caller flow.</summary>
+    public string                CancelReturnController { get; set; } = string.Empty;
+    /// <summary>Optional explicit F12 cancel action override from caller flow.</summary>
+    public string                CancelReturnAction     { get; set; } = string.Empty;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -494,7 +544,7 @@ public class StagedTaxRowViewModel
     public string BorrName { get; set; } = string.Empty;
     public string Errors { get; set; } = string.Empty;
     public string ReportToIrs { get; set; } = string.Empty;
-    public decimal IntPd { get; set; }
+    public long IntPd { get; set; }
     public decimal Compen { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

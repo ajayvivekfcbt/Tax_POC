@@ -1,0 +1,45 @@
+@model List<(string Title, string Description, string Action, string Controller)>
+@{
+    ViewData["Title"] = "Admin Dashboard";
+}
+
+<div class="terminal-panel">
+    <div class="terminal-header d-flex justify-content-between">
+        <span class="terminal-title">Admin Dashboard</span>
+        <span class="terminal-right">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+    </div>
+
+    <div class="terminal-banner mt-2 mb-3">
+        <span class="terminal-label">Available Actions:</span>
+    </div>
+
+    <div class="row g-3">
+        @if (Model != null && Model.Count > 0)
+        {
+            @foreach (var action in Model)
+            {
+                <div class="col-md-6">
+                    <div class="card h-100 shadow-sm" style="border-left: 4px solid #90c93e;">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <a asp-action="@action.Action" asp-controller="@action.Controller" 
+                                   style="text-decoration: none; color: #003f87;">
+                                    @action.Title
+                                </a>
+                            </h5>
+                            <p class="card-text text-muted">@action.Description</p>
+                            <a asp-action="@action.Action" asp-controller="@action.Controller" 
+                               class="btn btn-sm btn-primary">
+                                Open
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            }
+        }
+    </div>
+
+    <div class="alert alert-info mt-4" role="alert">
+        <strong>ℹ️ Admin Tools:</strong> Use these utilities to verify data integrity, compare legacy vs. web builds, and validate tax reporting staging.
+    </div>
+</div>

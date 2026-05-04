@@ -23,12 +23,22 @@ public class AssociationSelectController : Controller
     /// <param name="returnAction">Where to redirect after selection (e.g. "Clear").</param>
     /// <param name="returnController">Controller to redirect to.</param>
     [HttpGet]
-    public async Task<IActionResult> Index(string? returnAction, string? returnController, string? taxYear, string? formName)
+    public async Task<IActionResult> Index(
+        string? returnAction,
+        string? returnController,
+        string? taxYear,
+        string? formName,
+        string? cancelReturnController,
+        string? cancelReturnAction)
     {
         var userId    = User.Identity?.Name ?? "";
         var allAssns  = await _assnSvc.GetAuthorisedAssociationsAsync(userId);
         var selected  = GetCurrentSelection();
-        var cancelTarget = ResolveCancelTarget(returnController, returnAction);
+        var cancelTarget = ResolveCancelTarget(
+            returnController,
+            returnAction,
+            cancelReturnController,
+            cancelReturnAction);
 
         // For BUILD and EDIT/VALIDATE flows, start with a fresh selection UI
         // instead of inheriting stale session state (e.g., ALL).
@@ -52,7 +62,9 @@ public class AssociationSelectController : Controller
             ReturnTaxYear   = (taxYear ?? string.Empty).Trim(),
             ReturnFormName  = (formName ?? string.Empty).Trim(),
             CancelController = cancelTarget.controller,
-            CancelAction     = cancelTarget.action
+            CancelAction     = cancelTarget.action,
+            CancelReturnController = (cancelReturnController ?? string.Empty).Trim(),
+            CancelReturnAction     = (cancelReturnAction ?? string.Empty).Trim()
         };
         return View(vm);
     }
@@ -123,7 +135,9 @@ public class AssociationSelectController : Controller
                     returnAction = targetAction,
                     returnController = targetController,
                     taxYear = vm.ReturnTaxYear,
-                    formName = vm.ReturnFormName
+                    formName = vm.ReturnFormName,
+                    cancelReturnController = vm.CancelReturnController,
+                    cancelReturnAction = vm.CancelReturnAction
                 });
             }
 
@@ -194,8 +208,18 @@ public class AssociationSelectController : Controller
             : System.Text.Json.JsonSerializer.Deserialize<TaxControlRecord>(json);
     }
 
-    private static (string controller, string action) ResolveCancelTarget(string? returnController, string? returnAction)
+    private static (string controller, string action) ResolveCancelTarget(
+        string? returnController,
+        string? returnAction,
+        string? cancelReturnController,
+        string? cancelReturnAction)
     {
+        if (!string.IsNullOrWhiteSpace(cancelReturnController)
+            && !string.IsNullOrWhiteSpace(cancelReturnAction))
+        {
+            return (cancelReturnController.Trim(), cancelReturnAction.Trim());
+        }
+
         if (string.Equals(returnController, "TaxReporting", StringComparison.OrdinalIgnoreCase))
         {
             if (string.Equals(returnAction, "BuildAction", StringComparison.OrdinalIgnoreCase)

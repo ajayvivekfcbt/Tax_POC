@@ -4,9 +4,13 @@
 }
 
 <div class="terminal-panel">
-    <div class="terminal-header d-flex justify-content-between">
+    <div class="terminal-header d-flex justify-content-between align-items-center">
         <span class="terminal-title">Admin - SQLite Staged Tax Records</span>
-        <span class="terminal-right">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+        <div class="d-flex gap-2">
+            <a asp-action="Index" asp-controller="Admin" class="btn btn-sm btn-outline-primary">Back to Admin</a>
+            <a asp-action="Compare" asp-controller="Admin" class="btn btn-sm btn-outline-secondary">Compare with IBM i</a>
+            <span class="terminal-right">@DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")</span>
+        </div>
     </div>
 
     <div class="terminal-banner d-flex justify-content-between mt-2">
@@ -108,7 +112,7 @@
                         <td>@row.BorrName</td>
                         <td>@row.Errors</td>
                         <td>@row.ReportToIrs</td>
-                        <td>@row.IntPd.ToString("N2")</td>
+                        <td>@row.IntPd.ToString("N0")</td>
                         <td>@row.Compen.ToString("N2")</td>
                         <td>@row.UpdatedAt.ToString("yyyy-MM-dd HH:mm:ss")</td>
                     </tr>

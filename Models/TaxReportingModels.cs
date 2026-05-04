@@ -136,5 +136,6 @@ public class FormMenuViewModel
     public string D_PrtExc   { get; } = "Print Exclusion Report";
     public string D_PrtErr   { get; } = "Print Error Report";
     public string D_Summary  { get; } = "Review Summary of Tax Data";
+    public string D_AdminCountCheck { get; } = "Admin Count Check (compare web vs IBM i counts)";
     public string D_Letter   { get; } = "Print Letters for borrowers not receiving a 1098 form";
 }

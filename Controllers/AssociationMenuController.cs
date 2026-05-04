@@ -34,7 +34,13 @@ public class AssociationMenuController : Controller
             return RedirectToAction("YearSelect", "TaxReporting");
         }
         if (vm.BackPressed)
-            return RedirectToAction("AssociationSelect", "AssociationSelect");
+            return RedirectToAction("Index", "AssociationSelect", new
+            {
+                returnAction = "MainMenu",
+                returnController = "AssociationMenu",
+                cancelReturnAction = "MainMenu",
+                cancelReturnController = "AssociationMenu"
+            });
 
         if (!ModelState.IsValid || string.IsNullOrEmpty(vm.SelectedForm))
         {
@@ -93,8 +99,21 @@ public class AssociationMenuController : Controller
             {
                 returnAction = "BuildAction",
                 returnController = "TaxReporting",
+                cancelReturnAction = "FormMenu",
+                cancelReturnController = "AssociationMenu",
                 taxYear,
                 formName = selectedForm
+            });
+        }
+
+        if (string.Equals(vm.SelectedAction, "A", StringComparison.OrdinalIgnoreCase))
+        {
+            return RedirectToAction("Compare", "Admin", new
+            {
+                taxYear,
+                formName = selectedForm,
+                returnController = "AssociationMenu",
+                returnAction = "FormMenu"
             });
         }
 
@@ -138,10 +157,11 @@ public class AssociationMenuController : Controller
                 new FormAction { ActionCode = "C", Description = "2=Clear Data for Form" },
                 new FormAction { ActionCode = "B", Description = "3=Build Data for Form" },
                 new FormAction { ActionCode = "S", Description = "4=Display Summary" },
-                new FormAction { ActionCode = "D", Description = "5=Detail Report" },
-                new FormAction { ActionCode = "X", Description = "6=Exclusion Report" },
-                new FormAction { ActionCode = "R", Description = "7=Error Report" },
-                new FormAction { ActionCode = "M", Description = "8=Maintain Records" },
+                new FormAction { ActionCode = "A", Description = "5=Admin Count Check" },
+                new FormAction { ActionCode = "D", Description = "6=Detail Report" },
+                new FormAction { ActionCode = "X", Description = "7=Exclusion Report" },
+                new FormAction { ActionCode = "R", Description = "8=Error Report" },
+                new FormAction { ActionCode = "M", Description = "9=Maintain Records" },
             }
         };
     }

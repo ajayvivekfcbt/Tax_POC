@@ -15,7 +15,8 @@ public partial class TaxDetailTransformService
         int taxYear,
         string corpCode,
         DepositMasterRecord deposit,
-        bool isCurrentYear)
+        bool isCurrentYear,
+        string parentLib = "")
     {
         var record = new TaxDetailRecord
         {
@@ -27,29 +28,22 @@ public partial class TaxDetailTransformService
             Dept = deposit.Dept,
         };
 
-        // Check for "goofy" SSNs - zero them out if detected
-        if (IsGoofySSN(deposit.SsiDn))
+        // $GET_CUST + $SET_CUST equivalent: prefer CSMASTPR for authoritative TIN/name/address.
+        if (_sourceService != null && !string.IsNullOrWhiteSpace(parentLib) && deposit.CisNo > 0)
         {
-            record.SsiDn = 0;
-            record.SsiDc = "";
+            var cm = await _sourceService.QueryCustomerMasterAsync(deposit.CisNo.ToString("0"), parentLib);
+            if (cm != null)
+            {
+                ApplyCustomerMaster(record, cm);
+            }
+            else
+            {
+                ApplyDepositMasterCustomerFields(record, deposit);
+            }
         }
         else
         {
-            record.SsiDn = deposit.SsiDn;
-            record.SsiDc = deposit.SsiDc;
-        }
-
-        record.BorrName = deposit.BorrName;
-        record.BorrAddr = deposit.BorrAddr;
-        record.BorrAddrX = deposit.BorrAddrX;
-        record.BorrCity = deposit.BorrCity;
-        record.BorrState = deposit.BorrState;
-        record.BorrZip = deposit.BorrZip;
-
-        // Check for foreign address
-        if (string.IsNullOrWhiteSpace(deposit.BorrState) && deposit.BorrZip == 0)
-        {
-            record.Foreign = "Y";
+            ApplyDepositMasterCustomerFields(record, deposit);
         }
 
         // Calculate INTERN and ERNWTH based on OID code and current/prior year
@@ -93,55 +87,99 @@ public partial class TaxDetailTransformService
         int taxYear,
         string corpCode,
         CapitalReductionRecord cr,
-        string formName)
+        string formName,
+        string parentLib = "")
     {
-        var mbrNo = cr.CrpYet == "H" && cr.CpScis != "" ? cr.CpsAct : cr.CrLact;
+        var mbrNo  = cr.CrpYet == "H" && cr.CpScis != "" ? cr.CpsAct : cr.CrLact;
         var cisCis = cr.CrpYet == "H" && cr.CpScis != "" ? cr.CpScis : cr.CrLcis;
 
         var record = new TaxDetailRecord
         {
             TaxYear = taxYear.ToString(),
-            Form = formName,  // "1099-DIV" or "1099-PATR"
-            Asa = corpCode.PadRight(3)[..3],
-            MbrNo = mbrNo,
-            MbrSub = "000",
-            Dept = cr.CpBrch,
+            Form    = formName,   // "1099-DIV" or "1099-PATR"
+            Asa     = corpCode.PadRight(3)[..3],
+            MbrNo   = mbrNo,
+            MbrSub  = "000",
+            Dept    = cr.CpBrch,
         };
 
-        // TODO: Query customer master for address, SSN, etc.
-        // For now, set placeholders that would come from CSMASTPR lookup
-        record.SsiDn = cr.CpOtin;
-        
-        // Check for tax ID difference between record holder and beneficial owner
-        // If CpOtin (beneficial owner TIN) differs from owner TIN, flag in error field for review
+        // $GET_CUST equivalent: look up authoritative TIN/name/address from CSMASTPR.
+        // cpOtin is the beneficial-owner override TIN from SHCRPR; when non-zero and
+        // different from CSTIN, it takes precedence ($GET_CUST logic lines 1014-1022).
+        if (_sourceService != null && !string.IsNullOrWhiteSpace(parentLib) && !string.IsNullOrWhiteSpace(cisCis) && cisCis != "0")
+        {
+            var cm = await _sourceService.QueryCustomerMasterAsync(cisCis, parentLib);
+            if (cm != null)
+            {
+                ApplyCustomerMaster(record, cm, cr.CpOtin);
+            }
+            else
+            {
+                // Fallback: use CpOtin as TIN if available
+                record.SsiDn = cr.CpOtin > 0 ? cr.CpOtin : 0;
+            }
+        }
+        else
+        {
+            record.SsiDn = cr.CpOtin > 0 ? cr.CpOtin : 0;
+        }
+
+        // Amounts + form-specific logic
         if (formName == "1099-PATR")
         {
             record.PatWth = cr.CpAmwh;
             record.PatRef = cr.CpAmds;
-            
-            // TaxIdDifference: If beneficial owner TIN differs from account owner TIN
-            // Flag with Errors='Y' for manual review
-            if (cr.CpOtin > 0)
+
+            // Legacy Sr_CheckSSN: if CpOtin=0 and form is PATR, keep CSTIN (already applied above).
+            // TaxIdDifference flag: if beneficial-owner TIN differs from record holder TIN.
+            if (cr.CpOtin > 0 && _sourceService != null && !string.IsNullOrWhiteSpace(parentLib))
             {
+                // If we have a CM record, check whether CpOtin differed from CSTIN
+                // (ApplyCustomerMaster already used CpOtin when it differed, so Errors flag tracks difference)
                 record.Errors = "Y";
             }
         }
         else if (formName == "1099-DIV")
         {
-            // Route amounts based on asset type (D=Dividend, P=Patronage reference)
             record.DivRcv = cr.CpAmds;
             record.DivWth = cr.CpAmwh;
-            
+
             if (cr.CpOtin > 0)
-            {
                 record.Errors = "Y";
-            }
         }
 
         // Set report-to-IRS flag and reason
         DetermineCapitalReductionReportStatus(record, cr, formName);
 
         return record;
+    }
+
+    /// <summary>
+    /// Applies deposit master (DDMASTR) customer fields when CSMASTPR is unavailable.
+    /// Mirrors the fallback path in $SET_CUST for 1099-INT records.
+    /// </summary>
+    private void ApplyDepositMasterCustomerFields(TaxDetailRecord record, DepositMasterRecord deposit)
+    {
+        if (IsGoofySSN(deposit.SsiDn))
+        {
+            record.SsiDn = 0;
+            record.SsiDc = "";
+        }
+        else
+        {
+            record.SsiDn = deposit.SsiDn;
+            record.SsiDc = deposit.SsiDc;
+        }
+
+        record.BorrName  = deposit.BorrName;
+        record.BorrAddr  = deposit.BorrAddr;
+        record.BorrAddrX = deposit.BorrAddrX;
+        record.BorrCity  = deposit.BorrCity;
+        record.BorrState = deposit.BorrState;
+        record.BorrZip   = deposit.BorrZip;
+
+        if (string.IsNullOrWhiteSpace(deposit.BorrState) && deposit.BorrZip == 0)
+            record.Foreign = "Y";
     }
 
     /// <summary>

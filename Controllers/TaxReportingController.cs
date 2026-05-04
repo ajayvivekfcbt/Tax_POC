@@ -403,6 +403,15 @@ public sealed class TaxReportingController : Controller
                     HttpContext.Session.SetString(SessionKeyForm, formName);
                     return RedirectToAction("Index", "Summary");
 
+                case "ADMINCOUNT":
+                    return RedirectToAction("Compare", "Admin", new
+                    {
+                        taxYear = control.TaxYear,
+                        formName,
+                        returnController = "TaxReporting",
+                        returnAction = "FormMenu"
+                    });
+
                 case "PRTDTL":
                     return RedirectToAction(nameof(DetailReportSummary));
 

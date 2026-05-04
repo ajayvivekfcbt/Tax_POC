@@ -253,12 +253,14 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
     private readonly IConfiguration _cfg;
     private readonly TX9515BuildService _tx9515Build;
     private readonly TX9526ValidationService _validationService;
+    private readonly IAssociationService _assocService;
     private readonly ILogger<BuildTaxDataService> _logger;
 
     public BuildTaxDataService(IConfiguration cfg, LocalDbContext db,
                                IDbContextFactory<LocalDbContext> dbFactory,
                                TX9515BuildService tx9515Build,
                                TX9526ValidationService validationService,
+                               IAssociationService assocService,
                                ILogger<BuildTaxDataService> logger)
     {
         _cs                = cfg.GetConnectionString("IBMi")!;
@@ -268,6 +270,7 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
         _cfg               = cfg;
         _tx9515Build       = tx9515Build;
         _validationService = validationService;
+        _assocService      = assocService;
         _logger            = logger;
     }
 
@@ -308,14 +311,29 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
         await ClearLocalBuildScopeAsync(taxYear, formName, assocList, selectAll);
         progress?.Report(20);
 
-        // Get corp code and branch lib from configuration
+        // Get corp code and branch lib from configuration (fallback defaults)
         var corpCode = _cfg["TaxSettings:CorpCode"] ?? "001";
-        var branchLib = _cfg["IBMiSettings:Library"] ?? "TXLIB";
+        var defaultBranchLib = _cfg["IBMiSettings:Library"] ?? "TXLIB";
         var isCurrentYear = DateTime.Now.Year == taxYearInt;
 
+        // Resolve full AssociationRow metadata (FMDLIB, FMPALB) for per-association builds.
+        // This replaces the old GetAssociationLibraryAsync (which queried FMRPT1, not FMDLIB).
+        IList<AssociationRow> assocRowLookup = new List<AssociationRow>();
+        if (assocList.Count > 0)
+        {
+            try
+            {
+                assocRowLookup = await _assocService.GetSelectedAssociationsAsync(assocList);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Could not resolve AssociationRow metadata; build will use default library");
+            }
+        }
+
         _logger.LogInformation(
-            "BuildAsync starting: TaxYear={TaxYear}, Form={FormName}, CorpCode={CorpCode}, BranchLib={BranchLib}, SelectAll={SelectAll}, AssocCount={AssocCount}, Associations={Associations}",
-            taxYear, formName, corpCode, branchLib, selectAll, assocList.Count, string.Join(",", assocList));
+            "BuildAsync starting: TaxYear={TaxYear}, Form={FormName}, CorpCode={CorpCode}, DefaultBranchLib={BranchLib}, SelectAll={SelectAll}, AssocCount={AssocCount}, Associations={Associations}",
+            taxYear, formName, corpCode, defaultBranchLib, selectAll, assocList.Count, string.Join(",", assocList));
 
         try
         {
@@ -341,22 +359,25 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
                         progress?.Report(Math.Clamp(mapped, rangeStart, rangeEnd));
                     });
 
+                    // Resolve per-association FMDLIB and FMPALB from FCMCCRL2.
+                    var assocRow = assocRowLookup.FirstOrDefault(r =>
+                        string.Equals(r.CorpCode, assoc, StringComparison.OrdinalIgnoreCase));
+                    var assocBranchLib = assocRow?.BranchLib ?? defaultBranchLib;
+                    var assocParentLib = assocRow?.ParentLib ?? "";
+
                     _logger.LogInformation(
-                        "Building association {Association} ({Index}/{Total}) for TaxYear={TaxYear}, Form={FormName}",
-                        assoc,
-                        i + 1,
-                        assocCount,
-                        taxYear,
-                        formName);
+                        "Building association {Association} ({Index}/{Total}) TaxYear={TaxYear}, Form={FormName}, FMDLIB={BranchLib}, FMPALB={ParentLib}",
+                        assoc, i + 1, assocCount, taxYear, formName, assocBranchLib, assocParentLib);
 
                     var assocRows = await _tx9515Build.BuildTaxDetailsAsync(
                         taxYearInt,
                         formName.Trim(),
                         corpCode,
-                        branchLib,
+                        assocBranchLib,
                         isCurrentYear,
                         assocProgress,
-                        assoc);
+                        assoc,
+                        assocParentLib);
 
                     sourceRows.AddRange(assocRows);
                 }
@@ -368,7 +389,7 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
                     taxYearInt,
                     formName.Trim(),
                     corpCode,
-                    branchLib,
+                    defaultBranchLib,
                     isCurrentYear,
                     progress);
             }
@@ -596,8 +617,11 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
             formName);
     }
 
+    public Task<List<TaxDetailRecord>> GetIbmiTxrdtlRowsAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, int maxRows = 0)
+        => QueryBuildSourceFromIbmiAsync(taxYear, formName, associations.ToList(), selectAll, maxRows);
+
     private async Task<List<TaxDetailRecord>> QueryBuildSourceFromIbmiAsync(
-        string taxYear, string formName, IList<string> associations, bool selectAll)
+        string taxYear, string formName, IList<string> associations, bool selectAll, int maxRows = 0)
     {
         if (!int.TryParse(taxYear, out var taxYearInt))
         {
@@ -619,6 +643,9 @@ public sealed class BuildTaxDataService : IBuildTaxDataService
         }
 
         sql.Append(" ORDER BY ASA, MBRNO, MBRSUB");
+
+        if (maxRows > 0)
+            sql.Append($" FETCH FIRST {maxRows} ROWS ONLY");
 
         var rows = new List<TaxDetailRecord>();
         await using var conn = new OdbcConnection(_cs);

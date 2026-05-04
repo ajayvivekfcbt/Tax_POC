@@ -11,12 +11,14 @@ public sealed partial class TaxDetailSourceService
 {
     private readonly string _cs;
     private readonly string _lib;
+    private readonly string _coreDataLib;
     private readonly ILogger<TaxDetailSourceService> _logger;
 
     public TaxDetailSourceService(IConfiguration cfg, ILogger<TaxDetailSourceService> logger)
     {
         _cs     = cfg.GetConnectionString("IBMi")!;
         _lib    = cfg["IBMiSettings:Library"] ?? "TXLIB";
+        _coreDataLib = cfg["IBMiSettings:CoreDataLibrary"] ?? "DATCLIQ";
         _logger = logger;
     }
 
@@ -97,29 +99,76 @@ public sealed partial class TaxDetailSourceService
     /// Query LNMASTR (Loan Master) for 1098 tax records.
     /// Replaces the $PAID_BUILD subroutine logic from TX9515.
     /// </summary>
+    /// <summary>
+    /// Query LNMASTR (Loan Master) for 1098/1099-A tax records.
+    /// LNMASTR is always in DATCLIQ library (not in association-specific branches).
+    /// </summary>
     public async Task<List<LoanMasterRecord>> QueryLoanMasterAsync(
         int taxYear, 
-        string branchLib, 
-        string corpCode)
+        string branchLib,
+        string corpCode,
+        bool isCurrentYear = true)
     {
         return await Task.Run(() => 
         {
             var rows = new List<LoanMasterRecord>();
-            const string sql = @"SELECT ACCTNO, SNAME, STATE, YTDINT, ORGBL, SD1098, STATUS, ORGD7
-                                FROM DATCLIQ/LNMASTR
-                                FETCH FIRST 500 ROWS ONLY";
 
-            Console.WriteLine("[DEBUG] QueryLoanMasterAsync: Starting query");
+            // CR3: exclude loans paid off before the tax year.
+            // Current-year build: payoff date must fall within or after the tax year (LPDT7 > taxYear*1000).
+            // Prior-year build:   payoff date must fall within or after the prior year.
+            var payoffThreshold = isCurrentYear ? taxYear * 1000 : (taxYear - 1) * 1000;
+
+            // Columns ordered for positional reader access (0-based index comments below).
+            // Some legacy TX9515 fields (e.g., SSIDN/BAD/PYRLCP) are not present in current LNMASTR;
+            // placeholders preserve positional mapping for downstream logic.
+            var sql = @"SELECT
+                  ACCTNO,   -- 0
+                  CISNO,    -- 1
+                CAST(0 AS DECIMAL(11,0)) AS MBRNO,   -- 2  placeholder
+                  DEPT,     -- 3
+                CAST(0 AS DECIMAL(9,0)) AS SSIDN,    -- 4  placeholder
+                CAST('' AS CHAR(1)) AS SSIDC,        -- 5  placeholder
+                  SNAME,    -- 6
+                CAST('' AS CHAR(40)) AS BAD,         -- 7  placeholder
+                CAST('' AS CHAR(40)) AS BADX,        -- 8  placeholder
+                CAST('' AS CHAR(25)) AS BCTY,        -- 9  placeholder
+                STATE,    -- 10 borrower state
+                CAST(0 AS DECIMAL(9,0)) AS BZP,      -- 11 placeholder
+                  YTDINT,   -- 12
+                CAST(0 AS DECIMAL(11,2)) AS YTDLCP,  -- 13 placeholder
+                  YTDPIN,   -- 14
+                  YTDPPP,   -- 15
+                  YPOINT,   -- 16
+                  PTDINT,   -- 17
+                CAST(0 AS DECIMAL(11,2)) AS PYRLCP,  -- 18 placeholder
+                  PTDPIN,   -- 19
+                  PTDPPP,   -- 20
+                  PPOINT,   -- 21
+                  ORGBL,    -- 22
+                  SD1098,   -- 23
+                  STATUS,   -- 24
+                  ORGD7,    -- 25
+                  ENTD7,    -- 26
+                  FPDT7,    -- 27
+                  FPDT6,    -- 28
+                  LPDT7,    -- 29
+                  BRANCH    -- 30
+                  FROM {0}/LNMASTR
+              WHERE STATUS <> 'P'
+                 OR (STATUS = 'P' AND LPDT7 > ?)";
+
+            Console.WriteLine($"[DEBUG] QueryLoanMasterAsync: DATCLIQ/LNMASTR, taxYear={taxYear}, isCurrentYear={isCurrentYear}, payoffThreshold={payoffThreshold}");
             try
             {
                 using var conn = new OdbcConnection(_cs);
-                conn.ConnectionTimeout = 30;
+                conn.ConnectionTimeout = 60;
                 conn.Open();
-                Console.WriteLine("[DEBUG] Connection opened");
+                Console.WriteLine("[DEBUG] QueryLoanMasterAsync: Connection opened");
 
-                using var cmd = new OdbcCommand(sql, conn) { CommandTimeout = 30 };
+                using var cmd = new OdbcCommand(string.Format(sql, _coreDataLib), conn) { CommandTimeout = 120 };
+                cmd.Parameters.AddWithValue("?", payoffThreshold);
                 using var rdr = cmd.ExecuteReader();
-                Console.WriteLine("[DEBUG] Query executed, reading rows");
+                Console.WriteLine("[DEBUG] QueryLoanMasterAsync: Query executing...");
 
                 while (rdr.Read())
                 {
@@ -144,49 +193,45 @@ public sealed partial class TaxDetailSourceService
                     rows.Add(new LoanMasterRecord
                     {
                         AccountNo    = SafeDecimal(0),
-                        CisNo        = SafeDecimal(0),
-                        MbrNo        = SafeDecimal(0),
-                        Dept         = 0,
-                        Sd1098       = SafeString(5),
-                        SsiDn        = 0,
-                        SsiDc        = "",
-                        BorrName     = SafeString(1),
-                        BorrAddr     = "",
-                        BorrAddrX    = "",
-                        BorrCity     = "",
-                        BorrState    = SafeString(2),
-                        BorrZip      = 0,
-                        OrgDate7     = (int)SafeDecimal(7),
-                        EntDate7     = 0,
-                        FpDate7      = 0,
-                        FpDate6      = 0,
-                        Status       = SafeString(6),
-                        LpDate7      = 0,
-                        Branch       = 0,
-                        YtdInt       = SafeDecimal(3),
-                        YtdLcp       = 0,
-                        YtdPin       = 0,
-                        YtdPpp       = 0,
-                        YPoint       = 0,
-                        PtdInt       = 0,
-                        PyrlCp       = 0,
-                        PtdPin       = 0,
-                        PtdPpp       = 0,
-                        PPoint       = 0,
-                        OrgBal       = SafeDecimal(4),
-                        AccId        = SafeDecimal(0),
-                        FacilityCode = 0
+                        CisNo        = SafeDecimal(1),
+                        MbrNo        = SafeDecimal(2),
+                        Dept         = SafeDecimal(3),
+                        SsiDn        = SafeDecimal(4),
+                        SsiDc        = SafeString(5),
+                        BorrName     = SafeString(6),
+                        BorrAddr     = SafeString(7),
+                        BorrAddrX    = SafeString(8),
+                        BorrCity     = SafeString(9),
+                        BorrState    = SafeString(10),
+                        BorrZip      = SafeDecimal(11),
+                        YtdInt       = SafeDecimal(12),
+                        YtdLcp       = SafeDecimal(13),
+                        YtdPin       = SafeDecimal(14),
+                        YtdPpp       = SafeDecimal(15),
+                        YPoint       = SafeDecimal(16),
+                        PtdInt       = SafeDecimal(17),
+                        PyrlCp       = SafeDecimal(18),
+                        PtdPin       = SafeDecimal(19),
+                        PtdPpp       = SafeDecimal(20),
+                        PPoint       = SafeDecimal(21),
+                        OrgBal       = SafeDecimal(22),
+                        Sd1098       = SafeString(23),
+                        Status       = SafeString(24),
+                        OrgDate7     = (int)SafeDecimal(25),
+                        EntDate7     = (int)SafeDecimal(26),
+                        FpDate7      = (int)SafeDecimal(27),
+                        FpDate6      = (int)SafeDecimal(28),
+                        LpDate7      = (int)SafeDecimal(29),
+                        Branch       = SafeDecimal(30)
                     });
                 }
                 Console.WriteLine($"[DEBUG] QueryLoanMasterAsync: Found {rows.Count} records");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[ERROR] QueryLoanMasterAsync: Exception - {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[ERROR] QueryLoanMasterAsync: {ex.GetType().Name}: {ex.Message}");
                 if (ex.InnerException != null)
-                {
                     Console.WriteLine($"[ERROR] QueryLoanMasterAsync: InnerException - {ex.InnerException.Message}");
-                }
                 _logger.LogWarning(ex,
                     "Failed to query LNMASTR for tax year {TaxYear}, branch {BranchLib}, corp {CorpCode}",
                     taxYear, branchLib, corpCode);
@@ -232,6 +277,4 @@ public class LoanMasterRecord
     public decimal PtdPpp { get; set; }
     public decimal PPoint { get; set; }
     public decimal OrgBal { get; set; }
-    public decimal AccId { get; set; }
-    public decimal FacilityCode { get; set; }
 }

@@ -27,7 +27,8 @@ public sealed partial class TaxDetailTransformService
         int taxYear,
         string corpCode,
         LoanMasterRecord loan,
-        bool isCurrentYear)
+        bool isCurrentYear,
+        string parentLib = "")
     {
         var record = new TaxDetailRecord
         {
@@ -39,30 +40,23 @@ public sealed partial class TaxDetailTransformService
             Dept = loan.Dept,
         };
 
-        // Check for "goofy" SSNs - zero them out if detected
-        if (IsGoofySSN(loan.SsiDn))
+        // $GET_CUST equivalent: look up authoritative TIN/name/address from CSMASTPR.
+        // Falls back to LNMASTR fields when CSMASTPR is unavailable or parentLib is unknown.
+        if (_sourceService != null && !string.IsNullOrWhiteSpace(parentLib) && loan.CisNo > 0)
         {
-            record.SsiDn = 0;
-            record.SsiDc = "";
+            var cm = await _sourceService.QueryCustomerMasterAsync(loan.CisNo.ToString("0"), parentLib);
+            if (cm != null)
+            {
+                ApplyCustomerMaster(record, cm);
+            }
+            else
+            {
+                ApplyLoanMasterCustomerFields(record, loan);
+            }
         }
         else
         {
-            record.SsiDn = loan.SsiDn;
-            record.SsiDc = loan.SsiDc;
-        }
-
-        // Format borrower name and address - handle foreign addresses
-        record.BorrName = loan.BorrName;
-        record.BorrAddr = loan.BorrAddr;
-        record.BorrAddrX = loan.BorrAddrX;
-        record.BorrCity = loan.BorrCity;
-        record.BorrState = loan.BorrState;
-        record.BorrZip = loan.BorrZip;
-
-        // Check for foreign address (no state/zip)
-        if (string.IsNullOrWhiteSpace(loan.BorrState) && loan.BorrZip == 0)
-        {
-            record.Foreign = "Y";
+            ApplyLoanMasterCustomerFields(record, loan);
         }
 
         // Calculate INTPD and POINTS based on current/prior year
@@ -94,22 +88,6 @@ public sealed partial class TaxDetailTransformService
                 record.UnpPrn = monthEnd.UnpaidPrincipal;
             }
 
-            // Query security/facility information
-            if (loan.FacilityCode > 0)
-            {
-                var facility = await _sourceService.QueryFacilitySecurityAsync(loan.FacilityCode);
-                if (facility != null)
-                {
-                    record.SecAddr = facility.SecurityAddress;
-                    record.SecDesc = facility.SecurityDescription;
-                    // Use facility city/state if available
-                    if (!string.IsNullOrWhiteSpace(facility.SecurityCity))
-                        record.BorrCity = facility.SecurityCity;
-                    if (!string.IsNullOrWhiteSpace(facility.SecurityState))
-                        record.BorrState = facility.SecurityState;
-                }
-            }
-
             // Query collateral/property count
             var collateralCount = await _sourceService.QueryCollateralCountAsync(loan.MbrNo);
             if (collateralCount > 0)
@@ -135,9 +113,10 @@ public sealed partial class TaxDetailTransformService
         int taxYear,
         string corpCode,
         LoanMasterRecord loan,
-        bool isCurrentYear)
+        bool isCurrentYear,
+        string parentLib = "")
     {
-        var record = await TransformLoanMasterTo1098(taxYear, corpCode, loan, isCurrentYear);
+        var record = await TransformLoanMasterTo1098(taxYear, corpCode, loan, isCurrentYear, parentLib);
 
         record.Form = "1099-A";
         record.IntPd = 0;
@@ -184,8 +163,8 @@ public sealed partial class TaxDetailTransformService
             return;
         }
 
-        // Check 2: SSIDC = 'E' means corporation
-        if (loan.SsiDc == "E")
+        // Check 2: SSIDC = 'E' means corporation (use record value which may come from CSMASTPR)
+        if (record.SsiDc == "E")
         {
             record.ReportToIrs = "N";
             record.NonRptReason = "Interest paid by corporation";
@@ -217,7 +196,8 @@ public sealed partial class TaxDetailTransformService
             return;
         }
 
-        if (loan.SsiDc == "E")
+        // Use the enriched output record SSIDC so CSMASTPR overrides are respected.
+        if (record.SsiDc == "E")
         {
             record.ReportToIrs = "N";
             record.NonRptReason = "Borrower is a corporation";
@@ -279,6 +259,97 @@ public sealed partial class TaxDetailTransformService
 
         var first = ssnStr[0];
         return ssnStr.All(c => c == first);
+    }
+
+    /// <summary>
+    /// Applies source-record (LNMASTR) customer fields when CSMASTPR is unavailable.
+    /// Mirrors the fallback path in $SET_CUST.
+    /// </summary>
+    private void ApplyLoanMasterCustomerFields(TaxDetailRecord record, LoanMasterRecord loan)
+    {
+        if (IsGoofySSN(loan.SsiDn))
+        {
+            record.SsiDn = 0;
+            record.SsiDc = "";
+        }
+        else
+        {
+            record.SsiDn = loan.SsiDn;
+            record.SsiDc = loan.SsiDc;
+        }
+
+        record.BorrName  = loan.BorrName;
+        record.BorrAddr  = loan.BorrAddr;
+        record.BorrAddrX = loan.BorrAddrX;
+        record.BorrCity  = loan.BorrCity;
+        record.BorrState = loan.BorrState;
+        record.BorrZip   = loan.BorrZip;
+
+        if (string.IsNullOrWhiteSpace(loan.BorrState) && loan.BorrZip == 0)
+            record.Foreign = "Y";
+    }
+
+    /// <summary>
+    /// Applies customer master (CSMASTPR) fields to a tax detail record.
+    /// Implements the $GET_CUST + $SET_CUST logic for all form types.
+    /// cpOtin: when non-zero and different from CSTIN, use it as the TIN (beneficial owner override).
+    /// </summary>
+    internal void ApplyCustomerMaster(TaxDetailRecord record, CustomerMasterRecord cm, decimal cpOtin = 0)
+    {
+        // $GET_CUST: TIN selection
+        decimal tin = (cpOtin != 0 && cpOtin != cm.CsTin) ? cpOtin : cm.CsTin;
+
+        if (IsGoofySSN(tin))
+        {
+            record.SsiDn = 0;
+            record.SsiDc = "";
+        }
+        else
+        {
+            record.SsiDn = tin;
+            // CSTNCD: 'I' = Individual (SSN), 'T' = Trust/EIN
+            record.SsiDc = cm.CsTncd switch
+            {
+                "I" => "S",
+                "T" => "E",
+                _   => ""
+            };
+        }
+
+        // $SET_CUST: name
+        record.BorrName = cm.CsLegn;
+
+        // $SET_CUST: address — CSNA3 = line 1 (BAD), CSNA2 = line 2 (BADX).
+        // If CSNA3 is blank but CSNA2 is not, promote CSNA2 to line 1.
+        var addr1 = cm.CsNa3;
+        var addr2 = cm.CsNa2;
+        if (string.IsNullOrWhiteSpace(addr1) && !string.IsNullOrWhiteSpace(addr2))
+        {
+            addr1 = addr2;
+            addr2 = "";
+        }
+        record.BorrAddr  = addr1;
+        record.BorrAddrX = addr2;
+
+        // $SET_CUST: city — use CSCITL as length hint into CSNA4
+        if (cm.CsCitl > 0 && cm.CsCitl <= cm.CsNa4.Length)
+            record.BorrCity = cm.CsNa4[..cm.CsCitl].Trim();
+        else
+        {
+            // Fall back: use text before first space, or full CSNA4 if no spaces
+            var spaceIdx = cm.CsNa4.IndexOf(' ');
+            record.BorrCity = spaceIdx > 0 ? cm.CsNa4[..spaceIdx].Trim() : cm.CsNa4.Trim();
+        }
+
+        // $SET_CUST: state and foreign flag
+        record.BorrState = cm.CsStat;
+        if (string.IsNullOrWhiteSpace(cm.CsStat) && !string.IsNullOrWhiteSpace(cm.CsNa4))
+            record.Foreign = "Y";
+
+        // $SET_CUST: zip and MbrSub
+        record.BorrZip = cm.CsZip;
+        if (!string.IsNullOrWhiteSpace(cm.CsMbs))
+            record.MbrSub = cm.CsMbs;
     }
 
     /// <summary>

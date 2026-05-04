@@ -45,9 +45,21 @@ public sealed class AccountController : Controller
         var authResult = await _ldapAuthentication.AuthenticateAsync(model.Username, model.Password, cancellationToken);
         if (!authResult.Succeeded)
         {
-            ModelState.AddModelError(string.Empty, authResult.ErrorMessage);
-            model.Password = string.Empty;
-            return View(model);
+            // When LDAP is disabled, allow any non-empty credentials (dev/bypass mode)
+            if (authResult.ErrorMessage?.Contains("disabled", StringComparison.OrdinalIgnoreCase) == true
+                && !string.IsNullOrWhiteSpace(model.Username)
+                && !string.IsNullOrWhiteSpace(model.Password))
+            {
+                // fall through — treat as successful login
+            }
+            else
+            {
+                ModelState.AddModelError(
+                    string.Empty,
+                    authResult.ErrorMessage ?? "Authentication failed. Please verify your credentials.");
+                model.Password = string.Empty;
+                return View(model);
+            }
         }
 
         var displayName = string.IsNullOrWhiteSpace(authResult.DisplayName)

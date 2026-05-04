@@ -42,7 +42,8 @@ public sealed class TX9515BuildService
         string branchLib,
         bool isCurrentYear,
         IProgress<int>? progress = null,
-        string? associationId = null)
+        string? associationId = null,
+        string parentLib = "")
     {
         var results = new List<TaxDetailRecord>();
         progress?.Report(20);
@@ -52,49 +53,36 @@ public sealed class TX9515BuildService
             : associationId.Trim();
 
         _logger.LogInformation(
-            "BuildTaxDetailsAsync started: TaxYear={TaxYear}, Form={FormName}, Corp={CorpCode}, BranchLib={BranchLib}, AssocId={AssocId}",
-            taxYear, formName, effectiveCorpCode, branchLib, associationId ?? "none");
+            "BuildTaxDetailsAsync started: TaxYear={TaxYear}, Form={FormName}, Corp={CorpCode}, BranchLib={BranchLib}, ParentLib={ParentLib}, AssocId={AssocId}",
+            taxYear, formName, effectiveCorpCode, branchLib, parentLib, associationId ?? "none");
 
-        // If an association is specified, lookup its library from FCMCCR
-        var libraryToUse = branchLib;
-        if (!string.IsNullOrWhiteSpace(associationId))
-        {
-            var assocLibrary = await _sourceService.GetAssociationLibraryAsync(associationId);
-            if (!string.IsNullOrWhiteSpace(assocLibrary))
-            {
-                libraryToUse = assocLibrary;
-                _logger.LogInformation("Using association {AssocId} library: {Library}", associationId, libraryToUse);
-            }
-            else
-            {
-                _logger.LogWarning("Could not find library for association {AssocId}, using default {DefaultLib}", 
-                    associationId, branchLib);
-            }
-        }
+        // branchLib is already resolved per-association from FCMCCRL2 (FMDLIB) by the caller.
+        // Do NOT call GetAssociationLibraryAsync here — it queries FMRPT1, not FMDLIB.
+        var libraryToUse = string.IsNullOrWhiteSpace(branchLib) ? "DATCLIQ" : branchLib;
 
         try
         {
             switch (formName.Trim().ToUpper())
             {
                 case "1098":
-                    results = await BuildForm1098Async(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55);
+                    results = await BuildForm1098Async(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55, parentLib);
                     break;
 
                 case "1099-A":
                 case "1099A":
-                    results = await BuildForm1099AAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55);
+                    results = await BuildForm1099AAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55, parentLib);
                     break;
 
                 case "1099-INT":
-                    results = await BuildForm1099IntAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55);
+                    results = await BuildForm1099IntAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55, parentLib);
                     break;
 
                 case "1099-DIV":
-                    results = await BuildForm1099DivAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55);
+                    results = await BuildForm1099DivAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55, parentLib);
                     break;
 
                 case "1099-PATR":
-                    results = await BuildForm1099PatrAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55);
+                    results = await BuildForm1099PatrAsync(taxYear, effectiveCorpCode, libraryToUse, isCurrentYear, progress, 22, 55, parentLib);
                     break;
 
                 case "1099-MISC":
@@ -135,17 +123,18 @@ public sealed class TX9515BuildService
         bool isCurrentYear,
         IProgress<int>? progress,
         int progressStart,
-        int progressEnd)
+        int progressEnd,
+        string parentLib = "")
     {
         var results = new List<TaxDetailRecord>();
-        var loanRecordsTask = _sourceService.QueryLoanMasterAsync(taxYear, branchLib, corpCode);
+        var loanRecordsTask = _sourceService.QueryLoanMasterAsync(taxYear, branchLib, corpCode, isCurrentYear);
         var loanRecords = await AwaitWithProgressPulse(loanRecordsTask, progress, progressStart, Math.Min(progressStart + 8, progressEnd));
         ReportProgress(progress, Math.Min(progressStart + 8, progressEnd), progressEnd, 0, loanRecords.Count);
 
         for (var i = 0; i < loanRecords.Count; i++)
         {
             var loan = loanRecords[i];
-            var record = await _transformService.TransformLoanMasterTo1098(taxYear, corpCode, loan, isCurrentYear);
+            var record = await _transformService.TransformLoanMasterTo1098(taxYear, corpCode, loan, isCurrentYear, parentLib);
 
             if (record.IntPd + record.Points > 0)  // Only include if there's taxable interest
             {
@@ -166,7 +155,8 @@ public sealed class TX9515BuildService
         bool isCurrentYear,
         IProgress<int>? progress,
         int progressStart,
-        int progressEnd)
+        int progressEnd,
+        string parentLib = "")
     {
         var results = new List<TaxDetailRecord>();
         var depositRecordsTask = _sourceService.QueryDepositMasterAsync(taxYear, branchLib, corpCode);
@@ -176,7 +166,7 @@ public sealed class TX9515BuildService
         for (var i = 0; i < depositRecords.Count; i++)
         {
             var deposit = depositRecords[i];
-            var record = await _transformService.TransformDepositMasterTo1099Int(taxYear, corpCode, deposit, isCurrentYear);
+            var record = await _transformService.TransformDepositMasterTo1099Int(taxYear, corpCode, deposit, isCurrentYear, parentLib);
 
             // Only include if there's interest earned or withholding
             if (record.InterN > 0 || record.ErnWth > 0)
@@ -198,17 +188,18 @@ public sealed class TX9515BuildService
         bool isCurrentYear,
         IProgress<int>? progress,
         int progressStart,
-        int progressEnd)
+        int progressEnd,
+        string parentLib = "")
     {
         var results = new List<TaxDetailRecord>();
-        var loanRecordsTask = _sourceService.QueryLoanMasterAsync(taxYear, branchLib, corpCode);
+        var loanRecordsTask = _sourceService.QueryLoanMasterAsync(taxYear, branchLib, corpCode, isCurrentYear);
         var loanRecords = await AwaitWithProgressPulse(loanRecordsTask, progress, progressStart, Math.Min(progressStart + 8, progressEnd));
         ReportProgress(progress, Math.Min(progressStart + 8, progressEnd), progressEnd, 0, loanRecords.Count);
 
         for (var i = 0; i < loanRecords.Count; i++)
         {
             var loan = loanRecords[i];
-            var record = await _transformService.TransformLoanMasterTo1099A(taxYear, corpCode, loan, isCurrentYear);
+            var record = await _transformService.TransformLoanMasterTo1099A(taxYear, corpCode, loan, isCurrentYear, parentLib);
 
             // Keep staging permissive for 1099-A; downstream validation can flag incomplete records.
             if (record.UnpPrn > 0 || record.FmVal > 0 || !string.IsNullOrWhiteSpace(record.PrDesc))
@@ -230,7 +221,8 @@ public sealed class TX9515BuildService
         bool isCurrentYear,
         IProgress<int>? progress,
         int progressStart,
-        int progressEnd)
+        int progressEnd,
+        string parentLib = "")
     {
         var results = new List<TaxDetailRecord>();
         var crRecordsTask = _sourceService.QueryCapitalReductionsAsync(taxYear, branchLib, corpCode, "1099-DIV");
@@ -240,7 +232,7 @@ public sealed class TX9515BuildService
         for (var i = 0; i < crRecords.Count; i++)
         {
             var cr = crRecords[i];
-            var record = await _transformService.TransformCapitalReductionToForm(taxYear, corpCode, cr, "1099-DIV");
+            var record = await _transformService.TransformCapitalReductionToForm(taxYear, corpCode, cr, "1099-DIV", parentLib);
 
             if (record.DivRcv > 0 || record.DivWth > 0)
             {
@@ -261,7 +253,8 @@ public sealed class TX9515BuildService
         bool isCurrentYear,
         IProgress<int>? progress,
         int progressStart,
-        int progressEnd)
+        int progressEnd,
+        string parentLib = "")
     {
         // Try capital reduction path first (SHCRCT/SHCRPR)
         var results = new List<TaxDetailRecord>();
@@ -272,7 +265,7 @@ public sealed class TX9515BuildService
         for (var i = 0; i < crRecords.Count; i++)
         {
             var cr = crRecords[i];
-            var record = await _transformService.TransformCapitalReductionToForm(taxYear, corpCode, cr, "1099-PATR");
+            var record = await _transformService.TransformCapitalReductionToForm(taxYear, corpCode, cr, "1099-PATR", parentLib);
 
             if (record.PatRef > 0 || record.PatWth > 0)
             {

@@ -80,7 +80,7 @@ public class LocalTaxDetail
     public string   MbrSub      { get; set; } = string.Empty;
 
     // ── Identity ─────────────────────────────────────────────────────────
-    public decimal  SsiDn       { get; set; }
+    public long     SsiDn       { get; set; }
     public string   SsiDc       { get; set; } = string.Empty;
 
     // ── Borrower name / address ──────────────────────────────────────────
@@ -89,7 +89,7 @@ public class LocalTaxDetail
     public string   BorrAddrX   { get; set; } = string.Empty;
     public string   BorrCity    { get; set; } = string.Empty;
     public string   BorrState   { get; set; } = string.Empty;
-    public decimal  BorrZip     { get; set; }
+    public long     BorrZip     { get; set; }
 
     // ── Flags ────────────────────────────────────────────────────────────
     public string   Errors      { get; set; } = string.Empty;
@@ -98,27 +98,27 @@ public class LocalTaxDetail
     public string   CorrIn      { get; set; } = string.Empty;
     public string   Foreign     { get; set; } = string.Empty;
     public string   ChangeDate  { get; set; } = string.Empty;
-    public decimal  Dept        { get; set; }
+    public long     Dept        { get; set; }
 
     // ── 1098 amounts ─────────────────────────────────────────────────────
-    public decimal  IntPd       { get; set; }
-    public decimal  Points      { get; set; }
+    public long     IntPd       { get; set; }
+    public long     Points      { get; set; }
 
     // ── 1099-INT amounts ─────────────────────────────────────────────────
-    public decimal  InterN      { get; set; }
-    public decimal  ErnWth      { get; set; }
+    public long     InterN      { get; set; }
+    public long     ErnWth      { get; set; }
 
     // ── 1099-DIV amounts ─────────────────────────────────────────────────
-    public decimal  DivRcv      { get; set; }
-    public decimal  DivWth      { get; set; }
+    public long     DivRcv      { get; set; }
+    public long     DivWth      { get; set; }
 
     // ── 1099-PATR amounts ────────────────────────────────────────────────
-    public decimal  PatRef      { get; set; }
-    public decimal  PatWth      { get; set; }
+    public long     PatRef      { get; set; }
+    public long     PatWth      { get; set; }
 
     // ── 1099-A amounts / fields ──────────────────────────────────────────
-    public decimal  FmVal       { get; set; }
-    public decimal  UnpPrn      { get; set; }
+    public long     FmVal       { get; set; }
+    public long     UnpPrn      { get; set; }
     public string   DteAqr      { get; set; } = string.Empty;
     public string   PrDesc      { get; set; } = string.Empty;
 
@@ -136,7 +136,7 @@ public class LocalTaxDetail
     public string   SecAddr     { get; set; } = string.Empty;
     public string   SecDesc     { get; set; } = string.Empty;
     public string   SecOther    { get; set; } = string.Empty;
-    public decimal  SecNum      { get; set; }
+    public long     SecNum      { get; set; }
     public string   MtgAcqDt   { get; set; } = string.Empty;
 
     // ── Tracking ─────────────────────────────────────────────────────────
@@ -149,24 +149,35 @@ public class LocalTaxDetail
     {
         TaxYear     = r.TaxYear,    Form        = r.Form,
         Asa         = r.Asa,        MbrNo       = r.MbrNo,     MbrSub   = r.MbrSub,
-        SsiDn       = r.SsiDn,      SsiDc       = r.SsiDc,
+        SsiDn       = (long)decimal.Truncate(r.SsiDn),
+        SsiDc       = r.SsiDc,
         BorrName    = r.BorrName,   BorrAddr    = r.BorrAddr,  BorrAddrX = r.BorrAddrX,
-        BorrCity    = r.BorrCity,   BorrState   = r.BorrState, BorrZip   = r.BorrZip,
+        BorrCity    = r.BorrCity,
+        BorrState   = r.BorrState,
+        BorrZip     = (long)decimal.Truncate(r.BorrZip),
         Errors      = r.Errors,     ReportToIrs = r.ReportToIrs, NonRptReason = r.NonRptReason,
         CorrIn      = r.CorrIn,     Foreign     = r.Foreign,
-        ChangeDate  = r.ChangeDate, Dept        = r.Dept,
-        IntPd       = r.IntPd,      Points      = r.Points,
-        InterN      = r.InterN,     ErnWth      = r.ErnWth,
-        DivRcv      = r.DivRcv,     DivWth      = r.DivWth,
-        PatRef      = r.PatRef,     PatWth      = r.PatWth,
-        FmVal       = r.FmVal,      UnpPrn      = r.UnpPrn,
+        ChangeDate  = r.ChangeDate,
+        Dept        = (long)decimal.Truncate(r.Dept),
+        IntPd       = (long)decimal.Truncate(r.IntPd),
+        Points      = (long)decimal.Truncate(r.Points),
+        InterN      = (long)decimal.Truncate(r.InterN),
+        ErnWth      = (long)decimal.Truncate(r.ErnWth),
+        DivRcv      = (long)decimal.Truncate(r.DivRcv),
+        DivWth      = (long)decimal.Truncate(r.DivWth),
+        PatRef      = (long)decimal.Truncate(r.PatRef),
+        PatWth      = (long)decimal.Truncate(r.PatWth),
+        FmVal       = (long)decimal.Truncate(r.FmVal),
+        UnpPrn      = (long)decimal.Truncate(r.UnpPrn),
         DteAqr      = r.DteAqr,     PrDesc      = r.PrDesc,
         Compen      = r.Compen,     Rents       = r.Rents,
         MedPay      = r.MedPay,     LglPay      = r.LglPay,
         Other       = r.Other,      WthHeld     = r.WthHeld,
         OrigDate    = r.OrigDate,   SecSame     = r.SecSame,
         SecAddr     = r.SecAddr,    SecDesc     = r.SecDesc,
-        SecOther    = r.SecOther,   SecNum      = r.SecNum,    MtgAcqDt = r.MtgAcqDt,
+        SecOther    = r.SecOther,
+        SecNum      = (long)decimal.Truncate(r.SecNum),
+        MtgAcqDt    = r.MtgAcqDt,
         CreatedAt   = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow
     };
 
@@ -174,12 +185,16 @@ public class LocalTaxDetail
     {
         TaxYear     = TaxYear,    Form        = Form,
         Asa         = Asa,        MbrNo       = MbrNo,       MbrSub    = MbrSub,
-        SsiDn       = SsiDn,      SsiDc       = SsiDc,
+        SsiDn       = SsiDn,
+        SsiDc       = SsiDc,
         BorrName    = BorrName,   BorrAddr    = BorrAddr,    BorrAddrX = BorrAddrX,
-        BorrCity    = BorrCity,   BorrState   = BorrState,   BorrZip   = BorrZip,
+        BorrCity    = BorrCity,
+        BorrState   = BorrState,
+        BorrZip     = BorrZip,
         Errors      = Errors,     ReportToIrs = ReportToIrs, NonRptReason = NonRptReason,
         CorrIn      = CorrIn,     Foreign     = Foreign,
-        ChangeDate  = ChangeDate, Dept        = Dept,
+        ChangeDate  = ChangeDate,
+        Dept        = Dept,
         IntPd       = IntPd,      Points      = Points,
         InterN      = InterN,     ErnWth      = ErnWth,
         DivRcv      = DivRcv,     DivWth      = DivWth,
@@ -207,30 +222,30 @@ public class LocalTaxAudit
     public string   Asa         { get; set; } = string.Empty;
     public decimal  MbrNo       { get; set; }
     public string   MbrSub      { get; set; } = string.Empty;
-    public decimal  SsiDn       { get; set; }
+    public long     SsiDn       { get; set; }
     public string   SsiDc       { get; set; } = string.Empty;
     public string   BorrName    { get; set; } = string.Empty;
     public string   BorrAddr    { get; set; } = string.Empty;
     public string   BorrAddrX   { get; set; } = string.Empty;
     public string   BorrCity    { get; set; } = string.Empty;
     public string   BorrState   { get; set; } = string.Empty;
-    public decimal  BorrZip     { get; set; }
+    public long     BorrZip     { get; set; }
     public string   Errors      { get; set; } = string.Empty;
     public string   ReportToIrs { get; set; } = string.Empty;
     public string   CorrIn      { get; set; } = string.Empty;
     public string   Foreign     { get; set; } = string.Empty;
     public string   ChangeDate  { get; set; } = string.Empty;
-    public decimal  Dept        { get; set; }
-    public decimal  IntPd       { get; set; }
-    public decimal  Points      { get; set; }
-    public decimal  InterN      { get; set; }
-    public decimal  ErnWth      { get; set; }
-    public decimal  DivRcv      { get; set; }
-    public decimal  DivWth      { get; set; }
-    public decimal  PatRef      { get; set; }
-    public decimal  PatWth      { get; set; }
-    public decimal  FmVal       { get; set; }
-    public decimal  UnpPrn      { get; set; }
+    public long     Dept        { get; set; }
+    public long     IntPd       { get; set; }
+    public long     Points      { get; set; }
+    public long     InterN      { get; set; }
+    public long     ErnWth      { get; set; }
+    public long     DivRcv      { get; set; }
+    public long     DivWth      { get; set; }
+    public long     PatRef      { get; set; }
+    public long     PatWth      { get; set; }
+    public long     FmVal       { get; set; }
+    public long     UnpPrn      { get; set; }
     public string   DteAqr      { get; set; } = string.Empty;
     public string   PrDesc      { get; set; } = string.Empty;
     public decimal  Compen      { get; set; }
@@ -244,7 +259,7 @@ public class LocalTaxAudit
     public string   SecAddr     { get; set; } = string.Empty;
     public string   SecDesc     { get; set; } = string.Empty;
     public string   SecOther    { get; set; } = string.Empty;
-    public decimal  SecNum      { get; set; }
+    public long     SecNum      { get; set; }
     public string   MtgAcqDt    { get; set; } = string.Empty;
     public DateTime AuditCreatedAt { get; set; } = DateTime.UtcNow;
 
@@ -252,24 +267,35 @@ public class LocalTaxAudit
     {
         TaxYear     = r.TaxYear,    Form        = r.Form,
         Asa         = r.Asa,        MbrNo       = r.MbrNo,     MbrSub   = r.MbrSub,
-        SsiDn       = r.SsiDn,      SsiDc       = r.SsiDc,
+        SsiDn       = (long)decimal.Truncate(r.SsiDn),
+        SsiDc       = r.SsiDc,
         BorrName    = r.BorrName,   BorrAddr    = r.BorrAddr,  BorrAddrX = r.BorrAddrX,
-        BorrCity    = r.BorrCity,   BorrState   = r.BorrState, BorrZip   = r.BorrZip,
+        BorrCity    = r.BorrCity,
+        BorrState   = r.BorrState,
+        BorrZip     = (long)decimal.Truncate(r.BorrZip),
         Errors      = r.Errors,     ReportToIrs = r.ReportToIrs,
         CorrIn      = r.CorrIn,     Foreign     = r.Foreign,
-        ChangeDate  = r.ChangeDate, Dept        = r.Dept,
-        IntPd       = r.IntPd,      Points      = r.Points,
-        InterN      = r.InterN,     ErnWth      = r.ErnWth,
-        DivRcv      = r.DivRcv,     DivWth      = r.DivWth,
-        PatRef      = r.PatRef,     PatWth      = r.PatWth,
-        FmVal       = r.FmVal,      UnpPrn      = r.UnpPrn,
+        ChangeDate  = r.ChangeDate,
+        Dept        = (long)decimal.Truncate(r.Dept),
+        IntPd       = (long)decimal.Truncate(r.IntPd),
+        Points      = (long)decimal.Truncate(r.Points),
+        InterN      = (long)decimal.Truncate(r.InterN),
+        ErnWth      = (long)decimal.Truncate(r.ErnWth),
+        DivRcv      = (long)decimal.Truncate(r.DivRcv),
+        DivWth      = (long)decimal.Truncate(r.DivWth),
+        PatRef      = (long)decimal.Truncate(r.PatRef),
+        PatWth      = (long)decimal.Truncate(r.PatWth),
+        FmVal       = (long)decimal.Truncate(r.FmVal),
+        UnpPrn      = (long)decimal.Truncate(r.UnpPrn),
         DteAqr      = r.DteAqr,     PrDesc      = r.PrDesc,
         Compen      = r.Compen,     Rents       = r.Rents,
         MedPay      = r.MedPay,     LglPay      = r.LglPay,
         Other       = r.Other,      WthHeld     = r.WthHeld,
         OrigDate    = r.OrigDate,   SecSame     = r.SecSame,
         SecAddr     = r.SecAddr,    SecDesc     = r.SecDesc,
-        SecOther    = r.SecOther,   SecNum      = r.SecNum,    MtgAcqDt = r.MtgAcqDt,
+        SecOther    = r.SecOther,
+        SecNum      = (long)decimal.Truncate(r.SecNum),
+        MtgAcqDt    = r.MtgAcqDt,
         AuditCreatedAt = DateTime.UtcNow
     };
 }

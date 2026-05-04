@@ -66,6 +66,12 @@ public interface IBuildTaxDataService
     /// Source rows are read from IBM i TXRDTL (or local fallback if IBM i is unavailable).
     /// </summary>
     Task<int> BuildAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, IProgress<int>? progress = null);
+
+    /// <summary>
+    /// Query IBM i TXRDTL directly for the given form/year/association(s).
+    /// Used by the comparison tool to show field-level deltas vs. web-built rows.
+    /// </summary>
+    Task<List<TaxDetailRecord>> GetIbmiTxrdtlRowsAsync(string taxYear, string formName, IEnumerable<string> associations, bool selectAll, int maxRows = 0);
 }
 
 /// <summary>
